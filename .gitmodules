@@ -1,0 +1,3 @@
+[submodule "slang"]
+	path = third_party/slang
+	url = https://github.com/mikepopoloski/slang

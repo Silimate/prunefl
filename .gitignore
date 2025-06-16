@@ -1,0 +1,22 @@
+# Nonsense
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+
+# Python
+__pycache__
+.mypy_cache/
+/build
+/venv
+*.egg-info/
+dist/
+
+# Artifacts
+logs/
+pdks/
+/result
+requirements_tmp.txt
+download/
