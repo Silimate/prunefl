@@ -1,6 +1,6 @@
 [submodule "slang"]
 	path = third_party/slang
 	url = https://github.com/mikepopoloski/slang
-[submodule "third_party/fmt"]
-	path = third_party/fmt
-	url = https://github.com/fmtlib/fmt
+[submodule "third_party/access_private_20"]
+	path = third_party/access_private_20
+	url = https://github.com/schaumb/access_private_20

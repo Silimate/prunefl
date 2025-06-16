@@ -7,14 +7,14 @@
 #include "slang/text/SourceLocation.h"
 
 #include <fmt/format.h>
-#include <argparse.hpp>
+#include <argparse/argparse.hpp>
 #include <access_private.hpp>
 
 #include <unordered_map>
 #include <unordered_set>
 
 // HACK: Need raw preprocessor tokens to identify macro usages…
-ACCESS_PRIVATE_FUN(slang::parsing::Preprocessor, slang::parsing::Token(), nextRaw);
+template struct access_private::access<&slang::parsing::Preprocessor::nextRaw>;
 
 struct SVFile {
     slang::SourceManager *manager;
@@ -76,7 +76,7 @@ void add_unresolved_imports(SVFile &f, slang::SourceBuffer &buffer, slang::Sourc
     slang::parsing::Preprocessor preprocessor(manager, alloc, diagnostics, {}, {});
     preprocessor.pushSource(buffer);
     
-    auto token = call_private::nextRaw(preprocessor);
+    auto token = access_private::accessor<"nextRaw">(preprocessor);
     while (token.kind != slang::parsing::TokenKind::EndOfFile) {
         if (token.kind == slang::parsing::TokenKind::Directive) {
             auto directiveKind = token.directiveKind();
@@ -84,7 +84,7 @@ void add_unresolved_imports(SVFile &f, slang::SourceBuffer &buffer, slang::Sourc
                 f.process_usage(token);
             }
         }
-        token = call_private::nextRaw(preprocessor);
+        token = access_private::accessor<"nextRaw">(preprocessor);
     }
 }
 
