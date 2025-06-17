@@ -1,11 +1,11 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdio>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <set>
-#include <algorithm>
 
 #include <slang/text/SourceLocation.h>
 
@@ -22,35 +22,33 @@ namespace slang {
 	namespace parsing {
 		class Token;
 	}
+
+	namespace driver {
+		class Driver;
+	}
 } // namespace slang
 
-struct SourceFile {
-	slang::SourceManager &manager;
-	slang::BumpAllocator &alloc;
-	slang::BufferID buffer_id;
-	slang::SourceBuffer buffer;
+struct SourceNode {
+	slang::driver::Driver &driver;
+	slang::SourceBuffer &buffer;
 
-	SourceFile(
-		std::string_view path,
-		slang::SourceManager &manager,
-		slang::BumpAllocator &alloc
-	);
+	SourceNode(slang::driver::Driver &driver, slang::SourceBuffer &buffer);
 
-	// SourceFile(SourceFile &&src);
-
-	const std::set<slang::BufferID> &get_dependencies() const;
-	void add_dependency(slang::BufferID id);
+	const std::set<std::string_view> &get_dependencies() const;
+	void add_dependency(std::string_view file);
 	void output(FILE *f = stderr) const;
 	std::string_view getFileName() const;
 
 	std::set<std::string> exported_macros;
 	std::set<std::string> unresolved_macros;
+
 private:
 	void process_define(const slang::syntax::DefineDirectiveSyntax *define);
 	void process_usage(const slang::parsing::Token &token);
 	void process_defines();
 	void process_usages();
 
-	std::unordered_map<std::string, slang::SourceLocation> exported_macro_locations;
-	std::set<slang::BufferID> dependencies;
+	std::unordered_map<std::string, slang::SourceLocation>
+		exported_macro_locations;
+	std::set<std::string_view> dependencies;
 };

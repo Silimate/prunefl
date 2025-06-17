@@ -4,6 +4,7 @@
 #include <fmt/format.h>
 
 #include <iostream>
+#include <slang/driver/Driver.h>
 #include <slang/parsing/Preprocessor.h>
 #include <slang/parsing/Token.h>
 #include <slang/parsing/TokenKind.h>
@@ -24,26 +25,18 @@ namespace access_private {
 		slang::parsing::Preprocessor &,
 		slang::parsing::Token
 	);
-}
+} // namespace access_private
 
-SourceFile::SourceFile(
-	std::string_view path,
-	slang::SourceManager &manager,
-	slang::BumpAllocator &alloc
+SourceNode::SourceNode(
+	slang::driver::Driver &driver, slang::SourceBuffer &buffer
 )
-	: manager(manager), alloc(alloc) {
-	auto buffer_opt = manager.readSource(path, nullptr);
-	if (!buffer_opt) {
-		throw std::runtime_error("Failed to read file");
-	}
-	buffer = std::move(*buffer_opt);
-	buffer_id = buffer.id;
+	: driver(driver), buffer(buffer) {
 	process_defines();
 	process_usages();
 }
 
-// SourceFile::SourceFile(
-// 	SourceFile&& src
+// SourceNode::SourceNode(
+// 	SourceNode&& src
 // ): manager(manager), alloc(alloc) {
 // 	buffer = std::move(src.buffer);
 // 	buffer_id = src.buffer_id;
@@ -52,8 +45,8 @@ SourceFile::SourceFile(
 // 	dependencies = std::move(src.dependencies);
 // }
 
-void SourceFile::output(FILE *f) const {
-	fmt::println(f, "{}:", manager.getRawFileName(buffer.id));
+void SourceNode::output(FILE *f) const {
+	fmt::println(f, "{}:", driver.sourceManager.getRawFileName(buffer.id));
 	fmt::println(f, "  exported:");
 	for (auto &macro : exported_macros) {
 		fmt::println(f, "    - {}", macro);
@@ -65,7 +58,7 @@ void SourceFile::output(FILE *f) const {
 	fflush(f);
 }
 
-void SourceFile::process_define(
+void SourceNode::process_define(
 	const slang::syntax::DefineDirectiveSyntax *define
 ) {
 	std::string name{define->name.rawText()};
@@ -76,7 +69,7 @@ void SourceFile::process_define(
 	}
 }
 
-void SourceFile::process_usage(const slang::parsing::Token &token) {
+void SourceNode::process_usage(const slang::parsing::Token &token) {
 	auto raw = token.rawText();
 	std::string name{raw.begin() + 1, raw.end()};
 	auto sameFileExportedLoc = exported_macro_locations.find(name);
@@ -86,10 +79,11 @@ void SourceFile::process_usage(const slang::parsing::Token &token) {
 	}
 }
 
-void SourceFile::process_defines() {
+void SourceNode::process_defines() {
 	slang::Diagnostics diagnostics;
+	slang::BumpAllocator alloc;
 	slang::parsing::Preprocessor preprocessor(
-		manager, alloc, diagnostics, {}, {}
+		driver.sourceManager, alloc, diagnostics, {}, {}
 	);
 	preprocessor.pushSource(buffer);
 
@@ -103,10 +97,11 @@ void SourceFile::process_defines() {
 	}
 }
 
-void SourceFile::process_usages() {
+void SourceNode::process_usages() {
 	slang::Diagnostics diagnostics;
+	slang::BumpAllocator alloc;
 	slang::parsing::Preprocessor preprocessor(
-		manager, alloc, diagnostics, {}, {}
+		driver.sourceManager, alloc, diagnostics, {}, {}
 	);
 	preprocessor.pushSource(buffer);
 
@@ -136,13 +131,14 @@ void SourceFile::process_usages() {
 	}
 }
 
-void SourceFile::add_dependency(slang::BufferID id) { dependencies.insert(id); }
+void SourceNode::add_dependency(std::string_view file) {
+	dependencies.insert(file);
+}
 
-const std::set<slang::BufferID> &
-SourceFile::get_dependencies() const {
+const std::set<std::string_view> &SourceNode::get_dependencies() const {
 	return dependencies;
 }
 
-std::string_view SourceFile::getFileName() const {
-	return manager.getRawFileName(buffer_id);
+std::string_view SourceNode::getFileName() const {
+	return driver.sourceManager.getRawFileName(buffer.id);
 }

@@ -51,6 +51,7 @@
             pkgs.cmake
             pkgs.ninja
             pkgs.llvmPackages_18.clang-tools
+            pkgs.xxd
           ];
         };
       }

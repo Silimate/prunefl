@@ -7,25 +7,51 @@
 #include <slang/ast/symbols/CompilationUnitSymbols.h>
 #include <slang/ast/symbols/InstanceSymbols.h>
 #include <slang/diagnostics/DiagnosticEngine.h>
+#include <slang/driver/Driver.h>
 #include <slang/syntax/SyntaxTree.h>
 #include <slang/text/SourceLocation.h>
 #include <slang/text/SourceManager.h>
 #include <slang/util/BumpAllocator.h>
+#include <slang/util/OS.h>
+
+#include <stack>
+
+using namespace slang;
+
+extern unsigned char VERSION[];
+
+enum class NodeState { unvisited = 0, visiting, visited };
+struct ResultCache {
+	NodeState state = NodeState::unvisited;
+	std::set<std::string_view> resolved_macros{};
+};
 
 struct Resolution {
-	std::shared_ptr<SourceFile> file;
+	std::shared_ptr<SourceNode> file;
 	std::set<std::string_view> resolved_macros;
 };
 
-Resolution process_dependencies(
-	std::unordered_map<slang::BufferID, std::shared_ptr<SourceFile>>
+Resolution process_dependencies_recursive(
+	SourceManager &manager,
+	std::unordered_map<std::string_view, std::shared_ptr<SourceNode>>
 		&source_nodes,
-	const slang::ast::InstanceSymbol *current_instance,
-	FILE* out_stream = nullptr,
-	int depth = 0
+	std::unordered_map<std::string_view, ResultCache> &node_states,
+	const ast::InstanceSymbol *current_instance,
+	int depth,
+	FILE *out_stream = nullptr
 ) {
 	auto &definition = current_instance->getDefinition();
-	auto file = source_nodes[definition.location.buffer()];
+	auto buffer_id = definition.location.buffer();
+	auto name = manager.getRawFileName(buffer_id);
+	auto &cache_result = node_states.find(name)->second;
+	auto file = source_nodes[name];
+	if (cache_result.state == NodeState::visited) {
+		return {file, cache_result.resolved_macros};
+	}
+	if (cache_result.state == NodeState::visiting) {
+		return {nullptr, {}}; // cycle
+	}
+	cache_result.state = NodeState::visiting;
 	if (out_stream) {
 		fmt::println(
 			out_stream,
@@ -38,12 +64,25 @@ Resolution process_dependencies(
 	}
 	std::set<std::string_view> resolved_macros_so_far;
 	for (auto &member : current_instance->body.members()) {
-		if (member.kind == slang::ast::SymbolKind::Instance) {
-			auto &instanceSymbol = member.as<slang::ast::InstanceSymbol>();
+		if (member.kind == ast::SymbolKind::Instance) {
+			auto &instanceSymbol = member.as<ast::InstanceSymbol>();
 			auto &definition = instanceSymbol.getDefinition();
-			file->add_dependency(definition.location.buffer());
-			auto resolution = process_dependencies(source_nodes, &instanceSymbol, out_stream, depth + 1);
-			for (auto definition: resolution.resolved_macros) {
+			auto definition_buffer = definition.location.buffer();
+			auto definition_filename =
+				manager.getRawFileName(definition_buffer);
+			file->add_dependency(definition_filename);
+			auto resolution = process_dependencies_recursive(
+				manager,
+				source_nodes,
+				node_states,
+				&instanceSymbol,
+				depth + 1,
+				out_stream
+			);
+			if (resolution.file == nullptr) {
+				return resolution;
+			}
+			for (auto definition : resolution.resolved_macros) {
 				resolved_macros_so_far.insert(definition);
 			}
 		}
@@ -54,55 +93,126 @@ Resolution process_dependencies(
 	for (std::string_view current_file_macro : file->exported_macros) {
 		resolved_macros_so_far.insert(current_file_macro);
 	}
-	return { file, std::move(resolved_macros_so_far) };
+	cache_result.state = NodeState::visited;
+	cache_result.resolved_macros = resolved_macros_so_far;
+	return {file, resolved_macros_so_far};
+}
+
+Resolution process_dependencies(
+	SourceManager &manager,
+	std::unordered_map<std::string_view, std::shared_ptr<SourceNode>>
+		&source_nodes,
+	const ast::InstanceSymbol *top_instance,
+	FILE *out_stream = nullptr
+) {
+	std::unordered_map<std::string_view, ResultCache> node_states;
+	for (auto &[name, _] : source_nodes) {
+		node_states[name] = ResultCache();
+	}
+
+	return process_dependencies_recursive(
+		manager, source_nodes, node_states, top_instance, 0, out_stream
+	);
+}
+
+bool topological_sort_recursive(
+	std::vector<std::string_view> &result,
+	std::unordered_map<std::string_view, NodeState> &node_states,
+	std::unordered_map<std::string_view, std::shared_ptr<SourceNode>>
+		&source_nodes,
+	std::shared_ptr<SourceNode> target
+) {
+	auto name = target->getFileName();
+	auto state = node_states.find(name)->second;
+	if (state == NodeState::visited) {
+		return true; // already visited
+	}
+	if (state == NodeState::visiting) {
+		return false; // cycle
+	}
+	node_states[name] = NodeState::visiting;
+	for (auto dependency : target->get_dependencies()) {
+		if (!topological_sort_recursive(
+				result, node_states, source_nodes, source_nodes[dependency]
+			)) {
+			return false; // propagate detected cycle
+		}
+	}
+	result.push_back(name);
+	node_states[name] = NodeState::visited;
+	return true;
+}
+
+bool topological_sort(
+	std::vector<std::string_view> &result,
+	std::unordered_map<std::string_view, std::shared_ptr<SourceNode>>
+		&source_nodes,
+	std::shared_ptr<SourceNode> top_node
+) {
+	result.clear();
+
+	std::unordered_map<std::string_view, NodeState> node_states;
+	for (auto &[name, _] : source_nodes) {
+		node_states[name] = NodeState::unvisited;
+	}
+
+	return topological_sort_recursive(
+		result, node_states, source_nodes, top_node
+	);
 }
 
 int main(int argc, char *argv[]) {
-	argparse::ArgumentParser nodo_cmd(argc > 0 ? argv[0] : "nodo", "0.1.0");
-	nodo_cmd.add_argument("-t", "--top-module")
-		.help("The top module to use to prune")
-		.required();
-	nodo_cmd.add_argument("files").remaining();
-	try {
-		nodo_cmd.parse_args(argc, argv);
-	} catch (const std::exception &err) {
-		std::cerr << err.what() << std::endl;
-		std::cerr << nodo_cmd;
+	driver::Driver driver;
+
+	// CLI parsing
+	driver.addStandardArgs();
+	std::optional<bool> showHelp;
+	std::optional<bool> showVersion;
+	driver.cmdLine.add("-h,--help", showHelp, "Display available options");
+	driver.cmdLine.add(
+		"--version", showVersion, "Display version information and exit"
+	);
+	if (!driver.parseCommandLine(argc, argv)) {
 		return -1;
 	}
-	std::vector<std::string> files;
-	try {
-		files = nodo_cmd.get<std::vector<std::string>>("files");
-	} catch (std::logic_error &e) {
-		fmt::println(stderr, "[WARNING] No files given. Exiting.");
+	if (showHelp == true) {
+		OS::print(fmt::format("{}", driver.cmdLine.getHelpText("nodo")));
+		return 0;
+	}
+	if (showVersion == true) {
+		OS::print(fmt::format("nodo {}", (const char *)VERSION));
+		return 0;
+	}
+	if (!driver.processOptions()) {
+		return -1;
+	}
+
+	auto top_modules = driver.options.topModules;
+	if (top_modules.size() != 1) {
+		fmt::println(
+			stderr,
+			"[ERROR] Exactly one top module should be provided. (--top …)"
+		);
 		return 0;
 	}
 
-	slang::SourceManager manager;
-	slang::BumpAllocator alloc;
-	std::vector<std::shared_ptr<slang::syntax::SyntaxTree>> trees;
-	slang::ast::CompilationOptions options;
-	auto top_module = nodo_cmd.get<std::string>("--top-module");
-	options.topModules.emplace(top_module);
-	std::unordered_map<slang::BufferID, std::shared_ptr<SourceFile>>
+	// Elaboration
+	bool ok = driver.parseAllSources();
+
+	std::unique_ptr<ast::Compilation> compilation;
+	compilation = driver.createCompilation();
+	driver.reportCompilation(*compilation, true);
+	driver.reportDiagnostics(true);
+
+	auto macro_buffers = driver.sourceLoader.loadSources();
+	std::unordered_map<std::string_view, std::shared_ptr<SourceNode>>
 		source_nodes;
-
-	slang::ast::Compilation compilation(options);
-	for (auto &file : files) {
-		auto info = std::make_shared<SourceFile>(file, manager, alloc);
-		auto tree = slang::syntax::SyntaxTree::fromBuffer(
-			info->buffer, manager, {}, {}
-		);
-		trees.push_back(tree);
-		compilation.addSyntaxTree(tree);
-		source_nodes[info->buffer_id] = std::move(info);
+	for (auto &file : macro_buffers) {
+		auto info = std::make_shared<SourceNode>(driver, file);
+		source_nodes[info->getFileName()] = std::move(info);
 	}
-	auto &root = compilation.getRoot();
 
-	slang::DiagnosticEngine de(manager);
-	auto diagnostics = compilation.getAllDiagnostics();
-	fmt::println(stderr, "{}", de.reportAll(manager, diagnostics));
-
+	auto &root = compilation->getRoot();
 	auto instances = root.topInstances;
 	if (instances.size() != 1) {
 		fmt::println(
@@ -114,5 +224,19 @@ int main(int argc, char *argv[]) {
 		return 0;
 	}
 	auto instance = instances[0];
-	process_dependencies(source_nodes, instance, stderr);
+	auto resolution =
+		process_dependencies(driver.sourceManager, source_nodes, instance);
+	if (resolution.file == nullptr) {
+		fmt::println(stderr, "[FATAL] Cycle detected.");
+		return 1;
+	}
+
+	std::vector<std::string_view> result; // toposort result
+	if (!topological_sort(result, source_nodes, resolution.file)) {
+		fmt::println(stderr, "[FATAL] Cycle detected.");
+		return 1;
+	}
+	for (auto &file : result) {
+		fmt::println("{}", file);
+	}
 }

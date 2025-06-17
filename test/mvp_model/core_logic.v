@@ -4,12 +4,12 @@ module core_logic #(parameter WIDTH = `DEFAULT_WIDTH) (
     output wire data_out
 );
     wire temp;
-    `CONNECT(temp, data_in)
+    `CONNECT(temp, data_in);
 
     utils #(.DEPTH(WIDTH)) u_utils (
         .in(temp),
         .out(data_out)
     );
 
-    `UNUSED_WIRE(unused_signal)
+    `UNUSED_WIRE(unused_signal);
 endmodule
