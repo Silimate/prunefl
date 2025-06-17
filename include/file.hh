@@ -4,7 +4,8 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <unordered_set>
+#include <set>
+#include <algorithm>
 
 #include <slang/text/SourceLocation.h>
 
@@ -23,25 +24,33 @@ namespace slang {
 	}
 } // namespace slang
 
-struct SVFile {
+struct SourceFile {
 	slang::SourceManager &manager;
 	slang::BumpAllocator &alloc;
+	slang::BufferID buffer_id;
 	slang::SourceBuffer buffer;
 
-	SVFile(
+	SourceFile(
 		std::string_view path,
 		slang::SourceManager &manager,
 		slang::BumpAllocator &alloc
 	);
 
-	void output(FILE *f = stderr);
+	// SourceFile(SourceFile &&src);
 
-	private:
+	const std::set<slang::BufferID> &get_dependencies() const;
+	void add_dependency(slang::BufferID id);
+	void output(FILE *f = stderr) const;
+	std::string_view getFileName() const;
+
+	std::set<std::string> exported_macros;
+	std::set<std::string> unresolved_macros;
+private:
 	void process_define(const slang::syntax::DefineDirectiveSyntax *define);
 	void process_usage(const slang::parsing::Token &token);
 	void process_defines();
 	void process_usages();
 
-	std::unordered_map<std::string, slang::SourceLocation> exported_macros;
-	std::unordered_set<std::string> unresolved_macros;
+	std::unordered_map<std::string, slang::SourceLocation> exported_macro_locations;
+	std::set<slang::BufferID> dependencies;
 };
