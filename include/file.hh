@@ -12,18 +12,18 @@
 #include <string_view>
 #include <unordered_map>
 
-template <typename C>
-concept SourceBufferContainer = requires(C c, slang::SourceBuffer node) {
-	typename C::value_type;
-	{ std::is_same_v<typename C::value_type, slang::SourceBuffer> };
-	{ c.push(node) } -> std::same_as<void>;
-};
+typedef std::function<void(slang::SourceBuffer &)> SourceBufferCallback;
 
 struct SourceNode {
 	slang::driver::Driver *driver;
 	slang::SourceBuffer buffer;
+	size_t load_order;
 
-	SourceNode(slang::driver::Driver *driver, slang::SourceBuffer &buffer);
+	SourceNode(
+		slang::driver::Driver *driver,
+		slang::SourceBuffer &buffer,
+		size_t load_order
+	);
 	void output(FILE *f = stderr) const;
 	std::filesystem::path get_path() const;
 
@@ -31,40 +31,13 @@ struct SourceNode {
 	std::set<std::string> exported_macros;
 	std::set<std::string> unresolved_macros;
 
-	template <SourceBufferContainer ContainerType>
-	void process(ContainerType &container) {
+	void process(SourceBufferCallback source_buffer_cb) {
 		process_usages();
-		process_directives(container);
+		process_directives(source_buffer_cb);
 	}
 
 private:
-	template <SourceBufferContainer ContainerType>
-	void process_directives(ContainerType &container) {
-		slang::Diagnostics diagnostics;
-		slang::BumpAllocator alloc;
-		slang::parsing::Preprocessor preprocessor(
-			driver->sourceManager, alloc, diagnostics, {}, {}
-		);
-		preprocessor.pushSource(buffer);
-
-		auto token = preprocessor.next();
-		while (token.kind != slang::parsing::TokenKind::EndOfFile) {
-			token = preprocessor.next();
-		}
-
-		auto include_directives = preprocessor.getIncludeDirectives();
-		for (auto &include : include_directives) {
-			dependencies.insert(
-				driver->sourceManager.getFullPath(include.buffer.id)
-			);
-			container.push(std::move(include.buffer));
-		}
-
-		for (auto macro : preprocessor.getDefinedMacros()) {
-			process_define(macro);
-		}
-	}
-
+	void process_directives(SourceBufferCallback source_buffer_cb);
 	void process_define(const slang::syntax::DefineDirectiveSyntax *define);
 	void process_usages();
 	void process_usage(const slang::parsing::Token &token);

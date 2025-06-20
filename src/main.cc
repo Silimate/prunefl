@@ -14,6 +14,7 @@ int main(int argc, char *argv[]) {
 		driver.prepare();
 		driver.preprocess();
 		auto top_node = driver.module_resolution();
+		driver.implicit_macro_resolution();
 
 		std::vector<std::filesystem::path> result;
 		driver.topological_sort(result, top_node);

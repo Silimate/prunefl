@@ -49,30 +49,39 @@ void Driver::parse_cli(int argc, char *argv[]) {
 }
 
 void Driver::prepare() {
+	// Parse sources and report compilation issues
 	parseAllSources();
 	compilation = createCompilation();
 	reportCompilation(*compilation, true);
 	reportDiagnostics(true);
 
+	// Recreate file list (with fully resolved paths)
 	auto buffers_tmp = std::move(sourceLoader.loadSources()); // move buffers
 	size_t file_index = 0;
 	for (auto &buffer : buffers_tmp) { // reference
-		file_order[sourceManager.getFullPath(buffer.id)] = file_index++;
-		buffer_preprocessing_queue.emplace(std::move(buffer)); // move buffer
+		buffer_preprocessing_queue.push(
+			std::make_pair(std::move(buffer), file_index++)
+		); // move buffer
 	}
 	// buffers_tmp leftover structures deallocated
 }
 
 void Driver::preprocess() {
 	while (!buffer_preprocessing_queue.empty()) {
-		auto buffer = std::move(buffer_preprocessing_queue.front()); // move
+		auto tuple =
+			std::move(buffer_preprocessing_queue.front()); // move buffer
 		buffer_preprocessing_queue.pop(); // pop leftover structure
+		auto &[buffer, order] = tuple;	  // reference buffer
 		auto path = sourceManager.getFullPath(buffer.id);
 		if (source_nodes.find(path) != source_nodes.end()) {
 			continue;
 		}
-		auto node = std::make_shared<SourceNode>(this, buffer); // move again
-		node->process(buffer_preprocessing_queue);
+		auto node =
+			std::make_shared<SourceNode>(this, buffer, order); // move buffer
+		node->process([&](SourceBuffer &buffer) {
+			buffer_preprocessing_queue.push({std::move(buffer), -1}
+			); // move buffer
+		});
 		source_nodes[path] = node;
 		// local var buffer deallocated
 	}
@@ -215,5 +224,71 @@ void Driver::topological_sort(
 		throw std::runtime_error(
 			"Cycle detected during final topological sort of files."
 		);
+	}
+}
+
+struct SourceNodeOrderComparator {
+	bool operator()(
+		const std::shared_ptr<SourceNode> &a,
+		const std::shared_ptr<SourceNode> &b
+	) const {
+		return a->load_order < b->load_order;
+	}
+};
+
+void Driver::implicit_macro_resolution() {
+	// Maps each macro name to the set of source nodes that export it,
+	// ordered by SourceNodeOrderComparator (likely by load_order).
+	std::map<
+		std::string_view,
+		std::set<std::shared_ptr<SourceNode>, SourceNodeOrderComparator>>
+		macro_to_exporters;
+
+	// First pass: collect all macro exporters
+	for (const auto &[path, node] : source_nodes) {
+		if (node->load_order == -1) {
+			// Not in file list, skip
+			continue;
+		}
+		for (const auto &macro : node->exported_macros) {
+			macro_to_exporters[macro].insert(node);
+		}
+	}
+
+	// Second pass: resolve macros for each source node
+	for (const auto &[path, node] : source_nodes) {
+		if (node->load_order == -1) {
+			// Not in file list, skip
+			continue;
+		}
+
+		// Work with a queue of unresolved macros to process them one by one
+		std::deque<std::string_view> macros_to_resolve(
+			node->unresolved_macros.begin(), node->unresolved_macros.end()
+		);
+
+		while (!macros_to_resolve.empty()) {
+			std::string_view macro = macros_to_resolve.front();
+			macros_to_resolve.pop_front();
+
+			const auto &exporters = macro_to_exporters[macro];
+
+			// Try to find a valid exporter with a lower load_order
+			for (auto it = exporters.rbegin(); it != exporters.rend(); ++it) {
+				const auto &exporter_node = *it;
+
+				if (exporter_node->load_order == -1 ||
+					exporter_node->load_order >= node->load_order) {
+					// Either not in file list OR later in file list -
+					// not a valid candidate
+					continue;
+				}
+
+				// Found a valid macro exporter
+				node->unresolved_macros.erase(std::string{macro});
+				node->dependencies.insert(exporter_node->get_path());
+				break;
+			}
+		}
 	}
 }

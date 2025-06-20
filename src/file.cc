@@ -14,23 +14,25 @@
 #include <slang/text/SourceLocation.h>
 #include <slang/text/SourceManager.h>
 
+using namespace slang;
+
 namespace access_private {
 	// Expose private members
 	// template struct access<
-	// 	&slang::parsing::Preprocessor::handleIncludeDirective>;
-	template struct access<&slang::parsing::Preprocessor::nextRaw>;
+	// 	&parsing::Preprocessor::handleIncludeDirective>;
+	template struct access<&parsing::Preprocessor::nextRaw>;
 	// Allow l-value for handleIncludeDirective argument
 	// constexpr decltype(auto) call(
 	// 	accessor_t<"handleIncludeDirective">,
-	// 	slang::parsing::Preprocessor &,
-	// 	slang::parsing::Token
+	// 	parsing::Preprocessor &,
+	// 	parsing::Token
 	// );
 } // namespace access_private
 
 SourceNode::SourceNode(
-	slang::driver::Driver *driver, slang::SourceBuffer &buffer
+	driver::Driver *driver, SourceBuffer &buffer, size_t load_order
 )
-	: driver(driver), buffer(buffer) {}
+	: driver(driver), buffer(buffer), load_order(load_order) {}
 
 // SourceNode::SourceNode(
 // 	SourceNode&& src
@@ -59,9 +61,32 @@ void SourceNode::output(FILE *f) const {
 	fflush(f);
 }
 
-void SourceNode::process_define(
-	const slang::syntax::DefineDirectiveSyntax *define
-) {
+void SourceNode::process_directives(SourceBufferCallback source_buffer_cb) {
+	Diagnostics diagnostics;
+	BumpAllocator alloc;
+	parsing::Preprocessor preprocessor(
+		driver->sourceManager, alloc, diagnostics, {}, {}
+	);
+	preprocessor.pushSource(buffer);
+
+	auto token = preprocessor.next();
+	while (token.kind != parsing::TokenKind::EndOfFile) {
+		token = preprocessor.next();
+	}
+
+	auto include_directives = preprocessor.getIncludeDirectives();
+	for (auto &include : include_directives) {
+		dependencies.insert(driver->sourceManager.getFullPath(include.buffer.id)
+		);
+		source_buffer_cb(include.buffer); // assume move
+	}
+
+	for (auto macro : preprocessor.getDefinedMacros()) {
+		process_define(macro);
+	}
+}
+
+void SourceNode::process_define(const syntax::DefineDirectiveSyntax *define) {
 	std::string name{define->name.rawText()};
 	auto location = define->getFirstToken().location();
 	if (location.buffer() == buffer.id) {
@@ -70,7 +95,7 @@ void SourceNode::process_define(
 	}
 }
 
-void SourceNode::process_usage(const slang::parsing::Token &token) {
+void SourceNode::process_usage(const parsing::Token &token) {
 	auto raw = token.rawText();
 	std::string name{raw.begin() + 1, raw.end()};
 	auto sameFileExportedLoc = exported_macro_locations.find(name);
@@ -81,19 +106,18 @@ void SourceNode::process_usage(const slang::parsing::Token &token) {
 }
 
 void SourceNode::process_usages() {
-	slang::Diagnostics diagnostics;
-	slang::BumpAllocator alloc;
-	slang::parsing::Preprocessor preprocessor(
+	Diagnostics diagnostics;
+	BumpAllocator alloc;
+	parsing::Preprocessor preprocessor(
 		driver->sourceManager, alloc, diagnostics, {}, {}
 	);
 	preprocessor.pushSource(buffer);
 
-	slang::parsing::Token token =
-		access_private::accessor<"nextRaw">(preprocessor);
-	while (token.kind != slang::parsing::TokenKind::EndOfFile) {
-		if (token.kind == slang::parsing::TokenKind::Directive) {
+	parsing::Token token = access_private::accessor<"nextRaw">(preprocessor);
+	while (token.kind != parsing::TokenKind::EndOfFile) {
+		if (token.kind == parsing::TokenKind::Directive) {
 			auto directive_kind = token.directiveKind();
-			if (directive_kind == slang::syntax::SyntaxKind::MacroUsage) {
+			if (directive_kind == syntax::SyntaxKind::MacroUsage) {
 				process_usage(token);
 			}
 		}

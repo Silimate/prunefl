@@ -64,6 +64,8 @@ public:
 	 */
 	std::shared_ptr<SourceNode> module_resolution();
 
+	void implicit_macro_resolution();
+
 	/**
 	 * @brief To be run last.
 	 *
@@ -93,12 +95,13 @@ private:
 	};
 	struct ResolutionCacheEntry {
 		NodeState state = NodeState::unvisited;
-		std::set<std::string_view> resolved_macros{};
+		std::set<std::string_view> resolved_macros;
 	};
 	struct Resolution {
 		std::shared_ptr<SourceNode> file;
 		std::set<std::string_view> resolved_macros;
 	};
+	struct FileEntry {};
 
 	// methods
 	Resolution process_module_dependencies_recursive(
@@ -119,8 +122,8 @@ private:
 	std::unique_ptr<slang::ast::Compilation> compilation;
 	std::unordered_map<std::filesystem::path, std::shared_ptr<SourceNode>>
 		source_nodes;
-	std::unordered_map<std::filesystem::path, size_t> file_order;
-	std::queue<slang::SourceBuffer> buffer_preprocessing_queue;
+	std::queue<std::pair<slang::SourceBuffer, size_t>>
+		buffer_preprocessing_queue;
 
 	// cli
 	std::optional<bool> show_help;
