@@ -1,8 +1,8 @@
 #pragma once
 
 #include <slang/driver/Driver.h>
-#include <slang/text/SourceLocation.h>
 #include <slang/parsing/Preprocessor.h>
+#include <slang/text/SourceLocation.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -20,16 +20,14 @@ concept SourceBufferContainer = requires(C c, slang::SourceBuffer node) {
 };
 
 struct SourceNode {
-	slang::driver::Driver &driver;
+	slang::driver::Driver *driver;
 	slang::SourceBuffer buffer;
 
-	SourceNode(slang::driver::Driver &driver, slang::SourceBuffer &buffer);
-
-	const std::set<std::filesystem::path> &get_dependencies() const;
-	void add_dependency(std::filesystem::path file);
+	SourceNode(slang::driver::Driver *driver, slang::SourceBuffer &buffer);
 	void output(FILE *f = stderr) const;
 	std::filesystem::path get_path() const;
 
+	std::set<std::filesystem::path> dependencies;
 	std::set<std::string> exported_macros;
 	std::set<std::string> unresolved_macros;
 
@@ -38,14 +36,14 @@ struct SourceNode {
 		process_usages();
 		process_directives(container);
 	}
-private:
 
+private:
 	template <SourceBufferContainer ContainerType>
 	void process_directives(ContainerType &container) {
 		slang::Diagnostics diagnostics;
 		slang::BumpAllocator alloc;
 		slang::parsing::Preprocessor preprocessor(
-			driver.sourceManager, alloc, diagnostics, {}, {}
+			driver->sourceManager, alloc, diagnostics, {}, {}
 		);
 		preprocessor.pushSource(buffer);
 
@@ -56,7 +54,9 @@ private:
 
 		auto include_directives = preprocessor.getIncludeDirectives();
 		for (auto &include : include_directives) {
-			add_dependency(driver.sourceManager.getFullPath(include.buffer.id));
+			dependencies.insert(
+				driver->sourceManager.getFullPath(include.buffer.id)
+			);
 			container.push(std::move(include.buffer));
 		}
 
@@ -71,5 +71,4 @@ private:
 
 	std::unordered_map<std::string, slang::SourceLocation>
 		exported_macro_locations;
-	std::set<std::filesystem::path> dependencies;
 };

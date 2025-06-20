@@ -21,7 +21,7 @@ add_custom_command(
 )
 
 # Products
-add_executable(nodo src/main.cc src/file.cc "${CMAKE_CURRENT_BINARY_DIR}/version.cc")
+add_executable(nodo src/main.cc src/driver.cc src/file.cc "${CMAKE_CURRENT_BINARY_DIR}/version.cc")
 set_property(TARGET nodo PROPERTY CXX_STANDARD 20)
 target_include_directories(nodo PUBLIC include)
 target_include_directories(nodo PRIVATE third_party/access_private_20/include)

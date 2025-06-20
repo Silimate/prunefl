@@ -28,7 +28,7 @@ namespace access_private {
 } // namespace access_private
 
 SourceNode::SourceNode(
-	slang::driver::Driver &driver, slang::SourceBuffer &buffer
+	slang::driver::Driver *driver, slang::SourceBuffer &buffer
 )
 	: driver(driver), buffer(buffer) {}
 
@@ -84,7 +84,7 @@ void SourceNode::process_usages() {
 	slang::Diagnostics diagnostics;
 	slang::BumpAllocator alloc;
 	slang::parsing::Preprocessor preprocessor(
-		driver.sourceManager, alloc, diagnostics, {}, {}
+		driver->sourceManager, alloc, diagnostics, {}, {}
 	);
 	preprocessor.pushSource(buffer);
 
@@ -101,14 +101,6 @@ void SourceNode::process_usages() {
 	}
 }
 
-void SourceNode::add_dependency(std::filesystem::path file) {
-	dependencies.insert(file);
-}
-
-const std::set<std::filesystem::path> &SourceNode::get_dependencies() const {
-	return dependencies;
-}
-
 std::filesystem::path SourceNode::get_path() const {
-	return driver.sourceManager.getFullPath(buffer.id);
+	return driver->sourceManager.getFullPath(buffer.id);
 }
