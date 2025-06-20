@@ -20,3 +20,4 @@ pdks/
 /result
 requirements_tmp.txt
 download/
+*.log

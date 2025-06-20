@@ -16,24 +16,21 @@
 
 namespace access_private {
 	// Expose private members
-	template struct access<
-		&slang::parsing::Preprocessor::handleIncludeDirective>;
+	// template struct access<
+	// 	&slang::parsing::Preprocessor::handleIncludeDirective>;
 	template struct access<&slang::parsing::Preprocessor::nextRaw>;
 	// Allow l-value for handleIncludeDirective argument
-	constexpr decltype(auto) call(
-		accessor_t<"handleIncludeDirective">,
-		slang::parsing::Preprocessor &,
-		slang::parsing::Token
-	);
+	// constexpr decltype(auto) call(
+	// 	accessor_t<"handleIncludeDirective">,
+	// 	slang::parsing::Preprocessor &,
+	// 	slang::parsing::Token
+	// );
 } // namespace access_private
 
 SourceNode::SourceNode(
 	slang::driver::Driver &driver, slang::SourceBuffer &buffer
 )
-	: driver(driver), buffer(buffer) {
-	process_defines();
-	process_usages();
-}
+	: driver(driver), buffer(buffer) {}
 
 // SourceNode::SourceNode(
 // 	SourceNode&& src
@@ -46,14 +43,18 @@ SourceNode::SourceNode(
 // }
 
 void SourceNode::output(FILE *f) const {
-	fmt::println(f, "{}:", driver.sourceManager.getRawFileName(buffer.id));
-	fmt::println(f, "  exported:");
+	fmt::println(f, "{}:", get_path().c_str());
+	fmt::println(f, "  exported_macros:");
 	for (auto &macro : exported_macros) {
 		fmt::println(f, "    - {}", macro);
 	}
-	fmt::println(f, "  used:");
+	fmt::println(f, "  unresolved_macros:");
 	for (auto &macro : unresolved_macros) {
 		fmt::println(f, "    - {}", macro);
+	}
+	fmt::println(f, "  resolved_dependencies:");
+	for (auto &dep : dependencies) {
+		fmt::println(f, "    - {}", dep.c_str());
 	}
 	fflush(f);
 }
@@ -79,24 +80,6 @@ void SourceNode::process_usage(const slang::parsing::Token &token) {
 	}
 }
 
-void SourceNode::process_defines() {
-	slang::Diagnostics diagnostics;
-	slang::BumpAllocator alloc;
-	slang::parsing::Preprocessor preprocessor(
-		driver.sourceManager, alloc, diagnostics, {}, {}
-	);
-	preprocessor.pushSource(buffer);
-
-	auto token = preprocessor.next();
-	while (token.kind != slang::parsing::TokenKind::EndOfFile) {
-		token = preprocessor.next();
-	}
-
-	for (auto macro : preprocessor.getDefinedMacros()) {
-		process_define(macro);
-	}
-}
-
 void SourceNode::process_usages() {
 	slang::Diagnostics diagnostics;
 	slang::BumpAllocator alloc;
@@ -112,33 +95,20 @@ void SourceNode::process_usages() {
 			auto directive_kind = token.directiveKind();
 			if (directive_kind == slang::syntax::SyntaxKind::MacroUsage) {
 				process_usage(token);
-			} else if (directive_kind ==
-					   slang::syntax::SyntaxKind::IncludeDirective) {
-				/*
-				// TODO: Handle includes
-				slang::parsing::Trivia trivia =
-					access_private::accessor<"handleIncludeDirective">(
-						preprocessor, token
-					);
-				auto includeDirectiveSyntax =
-					static_cast<slang::syntax::IncludeDirectiveSyntax *>(
-						trivia.syntax()
-					);
-				*/
 			}
 		}
 		token = access_private::accessor<"nextRaw">(preprocessor);
 	}
 }
 
-void SourceNode::add_dependency(std::string_view file) {
+void SourceNode::add_dependency(std::filesystem::path file) {
 	dependencies.insert(file);
 }
 
-const std::set<std::string_view> &SourceNode::get_dependencies() const {
+const std::set<std::filesystem::path> &SourceNode::get_dependencies() const {
 	return dependencies;
 }
 
-std::string_view SourceNode::getFileName() const {
-	return driver.sourceManager.getRawFileName(buffer.id);
+std::filesystem::path SourceNode::get_path() const {
+	return driver.sourceManager.getFullPath(buffer.id);
 }
