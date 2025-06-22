@@ -5,7 +5,7 @@ module module_a (
 );
     wire processed_signal;
 
-    module_b u_mod_b (
+    `MODULE_B_NAME u_mod_b (
         .clk(clk),
         .in_b(in_a),
         .out_b(processed_signal)

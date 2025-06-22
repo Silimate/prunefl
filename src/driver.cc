@@ -1,10 +1,14 @@
 #include "driver.hh"
 
+#include <slang/ast/ASTVisitor.h>
 #include <slang/ast/Symbol.h>
 #include <slang/ast/symbols/CompilationUnitSymbols.h>
 #include <slang/ast/symbols/InstanceSymbols.h>
 #include <slang/syntax/SyntaxTree.h>
+#include <slang/syntax/SyntaxVisitor.h>
 #include <slang/util/OS.h>
+
+#include <fmt/ostream.h>
 
 using namespace slang;
 
@@ -37,7 +41,7 @@ void Driver::parse_cli(int argc, char *argv[]) {
 	}
 	if (!processOptions()) {
 		throw std::runtime_error(
-			"Failed to process slang command-line options\n"
+			"Failed to process slang command-line options"
 		);
 	}
 
@@ -66,6 +70,56 @@ void Driver::prepare() {
 	// buffers_tmp leftover structures deallocated
 }
 
+Driver::Resolution Driver::process_included_macros_recursive(
+	std::unordered_map<std::filesystem::path, ResolutionCacheEntry> &cache,
+	std::shared_ptr<SourceNode> current_node
+) {
+	auto path = current_node->get_path();
+
+	// Recursion: Check if result if cached, or if a cycle happened
+	auto cache_entry_it = cache.find(path);
+	auto &cache_entry = cache_entry_it->second;
+	if (cache_entry.state == NodeState::visited) {
+		return {current_node, cache_entry.resolved_macros}; // cached
+	}
+	if (cache_entry.state == NodeState::visiting) {
+		return {nullptr, {}}; // cycle
+	}
+	cache_entry.state = NodeState::visiting;
+
+	// Includes
+	std::set<std::string_view> resolved_macros_so_far;
+	for (auto &include : current_node->includes) {
+		auto &[inc_path, inc_loc] = include;
+		auto resolution =
+			process_included_macros_recursive(cache, source_nodes[inc_path]);
+		if (resolution.file == nullptr) {
+			return resolution; // propagate detected cycle
+		}
+		for (auto &macro : resolution.resolved_macros) {
+			current_node->exported_macro_locations[std::string{macro}] =
+				inc_loc;
+			resolved_macros_so_far.insert(macro);
+			auto potential_usage =
+				current_node->unresolved_macro_locations.find(std::string{macro}
+				);
+			if (potential_usage !=
+					current_node->unresolved_macro_locations.end() &&
+				potential_usage->second > inc_loc) {
+				current_node->unresolved_macro_locations.erase(std::string(macro
+				));
+			}
+		}
+	}
+	for (auto &macro_export : current_node->exported_macro_locations) {
+		resolved_macros_so_far.insert(macro_export.first);
+		// no need to resolve in-file, already done
+	}
+	cache_entry.state = NodeState::visited;
+	cache_entry.resolved_macros = resolved_macros_so_far;
+	return {current_node, resolved_macros_so_far};
+}
+
 void Driver::preprocess() {
 	while (!buffer_preprocessing_queue.empty()) {
 		auto tuple =
@@ -86,12 +140,35 @@ void Driver::preprocess() {
 		// local var buffer deallocated
 	}
 
+	std::unordered_map<std::filesystem::path, Driver::ResolutionCacheEntry>
+		node_states;
+	for (auto &[name, _] : source_nodes) {
+		node_states[name] = Driver::ResolutionCacheEntry();
+	}
+
+	bool errors_found = false;
+	for (auto &node : source_nodes) {
+		if (node_states[node.first].state != Driver::NodeState::visited) {
+			auto resolution =
+				process_included_macros_recursive(node_states, node.second);
+			if (resolution.file == nullptr) {
+				errors_found = true;
+			}
+		}
+	}
+
 	if (debug_output_prefix_string.has_value()) {
 		auto preprocessed = *debug_output_prefix_string + "_preprocessed.log";
 		FILE *f = fopen(preprocessed.c_str(), "w");
 		for (auto &tuple : source_nodes) {
 			tuple.second->output(f);
 		}
+	}
+
+	if (errors_found) {
+		throw std::runtime_error(
+			"Cycle detected while processing includes. Cannot prune file list."
+		);
 	}
 }
 
@@ -101,48 +178,53 @@ Driver::Resolution Driver::process_module_dependencies_recursive(
 	const ast::InstanceSymbol *current_instance,
 	int depth
 ) {
-	auto &definition = current_instance->getDefinition();
-	auto buffer_id = definition.location.buffer();
-	auto path = sourceManager.getFullPath(buffer_id);
-	auto &cache_entry = cache.find(path)->second;
-	auto file = source_nodes[path];
+	// Get filepath and node pointer
+	auto [loc, path] = get_definition_syntax_location(*current_instance);
+	auto current_node = source_nodes[path];
+
+	// Recursion: Check if result if cached, or if a cycle happened
+	auto cache_entry_it = cache.find(path);
+	auto &cache_entry = cache_entry_it->second;
 	if (cache_entry.state == NodeState::visited) {
-		return {file, cache_entry.resolved_macros}; // cached
+		return {current_node, cache_entry.resolved_macros}; // cached
 	}
 	if (cache_entry.state == NodeState::visiting) {
 		return {nullptr, {}}; // cycle
 	}
 	cache_entry.state = NodeState::visiting;
+
+	// Resolve the modules and macros!
 	std::set<std::string_view> resolved_macros_so_far;
-	auto parentScope = current_instance->getDefinition().getSyntax()->parent;
 	for (auto &member : current_instance->body.members()) {
 		if (member.kind == ast::SymbolKind::Instance) {
-			auto &instanceSymbol = member.as<ast::InstanceSymbol>();
-			auto &definition = instanceSymbol.getDefinition();
-			auto definition_buffer = definition.location.buffer();
-			auto definition_filepath =
-				sourceManager.getFullPath(definition_buffer);
-			file->dependencies.insert(definition_filepath);
+			auto &instance_symbol = member.as<ast::InstanceSymbol>();
+			auto [def_loc, def_path] =
+				get_definition_syntax_location(instance_symbol);
+			current_node->dependencies.insert(def_path);
 			auto resolution = process_module_dependencies_recursive(
-				cache, &instanceSymbol, depth + 1
+				cache, &instance_symbol, depth + 1
 			);
 			if (resolution.file == nullptr) {
-				return resolution;
+				return resolution; // propagate detected cycle
 			}
-			for (auto definition : resolution.resolved_macros) {
+			for (auto definition :
+				 resolution.resolved_macros) { // no auto&, already string view
 				resolved_macros_so_far.insert(definition);
 			}
 		}
 	}
-	for (auto resolved_macro : resolved_macros_so_far) {
-		file->unresolved_macros.erase(std::string(resolved_macro));
+	for (auto resolved_macro :
+		 resolved_macros_so_far) { // no auto&, already string view
+		current_node->unresolved_macro_locations.erase(
+			std::string(resolved_macro)
+		);
 	}
-	for (std::string_view current_file_macro : file->exported_macros) {
-		resolved_macros_so_far.insert(current_file_macro);
+	for (auto &current_file_macro : current_node->exported_macro_locations) {
+		resolved_macros_so_far.insert(current_file_macro.first);
 	}
 	cache_entry.state = NodeState::visited;
 	cache_entry.resolved_macros = resolved_macros_so_far;
-	return {file, resolved_macros_so_far};
+	return {current_node, resolved_macros_so_far};
 }
 
 Driver::Resolution Driver::process_module_dependencies(
@@ -196,7 +278,7 @@ bool Driver::topological_sort_recursive(
 		return false; // cycle
 	}
 	node_states[path] = NodeState::visiting;
-	for (auto dependency : target->dependencies) {
+	for (auto &dependency : target->dependencies) {
 		if (!topological_sort_recursive(
 				result, node_states, source_nodes[dependency]
 			)) {
@@ -221,9 +303,9 @@ void Driver::topological_sort(
 
 	auto success = topological_sort_recursive(result, node_states, top_node);
 	if (!success) {
-		throw std::runtime_error(
-			"Cycle detected during final topological sort of files."
-		);
+		// realistically this shouldn't happen if we got to this point
+		throw std::runtime_error("Cycle detected during final topological sort "
+								 "of files. Cannot output final file list.");
 	}
 }
 
@@ -250,8 +332,8 @@ void Driver::implicit_macro_resolution() {
 			// Not in file list, skip
 			continue;
 		}
-		for (const auto &macro : node->exported_macros) {
-			macro_to_exporters[macro].insert(node);
+		for (const auto &macro : node->exported_macro_locations) {
+			macro_to_exporters[macro.first].insert(node);
 		}
 	}
 
@@ -263,9 +345,13 @@ void Driver::implicit_macro_resolution() {
 		}
 
 		// Work with a queue of unresolved macros to process them one by one
-		std::deque<std::string_view> macros_to_resolve(
-			node->unresolved_macros.begin(), node->unresolved_macros.end()
-		);
+		std::deque<std::string_view> macros_to_resolve;
+
+		for (auto it = node->unresolved_macro_locations.begin();
+			 it != node->unresolved_macro_locations.end();
+			 it++) {
+			macros_to_resolve.push_back(it->first);
+		}
 
 		while (!macros_to_resolve.empty()) {
 			std::string_view macro = macros_to_resolve.front();
@@ -285,10 +371,18 @@ void Driver::implicit_macro_resolution() {
 				}
 
 				// Found a valid macro exporter
-				node->unresolved_macros.erase(std::string{macro});
+				node->unresolved_macro_locations.erase(std::string{macro});
 				node->dependencies.insert(exporter_node->get_path());
 				break;
 			}
+		}
+	}
+
+	if (debug_output_prefix_string.has_value()) {
+		auto resolved = *debug_output_prefix_string + "_resolved.log";
+		FILE *f = fopen(resolved.c_str(), "w");
+		for (auto &tuple : source_nodes) {
+			tuple.second->output(f);
 		}
 	}
 }

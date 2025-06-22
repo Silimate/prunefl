@@ -1,6 +1,6 @@
 {
   inputs = {
-    nix-eda.url = github:fossi-foundation/nix-eda;
+    nix-eda.url = "github:fossi-foundation/nix-eda";
   };
 
   outputs = {
@@ -49,7 +49,6 @@
         default = pkgs.mkShell.override {stdenv = pkgs.llvmPackages_18.stdenv;} {
           nativeBuildInputs = [
             pkgs.cmake
-            pkgs.ninja
             pkgs.llvmPackages_18.clang-tools
             pkgs.xxd
           ];

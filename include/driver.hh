@@ -2,6 +2,8 @@
 
 #include "file.hh"
 
+#include <slang/ast/symbols/CompilationUnitSymbols.h>
+#include <slang/ast/symbols/InstanceSymbols.h>
 #include <slang/driver/Driver.h>
 
 class Driver : public slang::driver::Driver {
@@ -34,7 +36,8 @@ public:
 	 * - Included files
 	 *
 	 * After this phase, any macros not defined in the same compilation unit
-	 * (i.e., the same file) are considered unresolved.
+	 * (i.e., the same file) OR are explicitly included are considered
+	 * unresolved.
 	 *
 	 * Included files are added to each file's dependency list.
 	 *
@@ -55,6 +58,7 @@ public:
 	 * this step, the only unresolved macros should be from files that:
 	 * - Are not explicitly included
 	 * - Do not include any modules used by the top module
+	 * - Are defined via the command-line
 	 *
 	 * If the command-line option `--debug-out-pfx <arg>` is set, the file
 	 * `{arg}_modules_resolved.log` will be created, containing a representation
@@ -64,6 +68,26 @@ public:
 	 */
 	std::shared_ptr<SourceNode> module_resolution();
 
+	/**
+	 * @brief Resolves macros that are "implicitly" included, e.g., by source
+	 * files being listed before this file in the compilation list.
+	 *
+	 * Macros can be implicitly resolved iff all of:
+	 *   - A macro is left unresolved from previous preprocessing steps
+	 *   - Where the macro has not been resolved via an include statement
+	 *   - Where the macro has not been resolved by being included as part of a
+	 *     module's dependency
+	 *   - The macro definer is in a file explicitly listed in the file list
+	 *   - The macro user is a file is later in the file list
+	 *
+	 * After this step, the only unresolved macros should be from files that:
+	 * - Do not include any modules used by the top module
+	 * - Are defined via the command-line
+	 *
+	 * If the command-line option `--debug-out-pfx <arg>` is set, the file
+	 * `{arg}_resolved.log` will be created, containing a representation
+	 * of the current state of node metadata.
+	 */
 	void implicit_macro_resolution();
 
 	/**
@@ -104,6 +128,12 @@ private:
 	struct FileEntry {};
 
 	// methods
+
+	Resolution process_included_macros_recursive(
+		std::unordered_map<std::filesystem::path, ResolutionCacheEntry> &cache,
+		std::shared_ptr<SourceNode> current_node
+	);
+
 	Resolution process_module_dependencies_recursive(
 		std::unordered_map<std::filesystem::path, ResolutionCacheEntry> &cache,
 		const slang::ast::InstanceSymbol *current_instance,
@@ -111,6 +141,13 @@ private:
 	);
 	Resolution
 	process_module_dependencies(const slang::ast::InstanceSymbol *top_instance);
+
+	inline std::pair<slang::SourceLocation, std::filesystem::path>
+	get_definition_syntax_location(const slang::ast::InstanceSymbol &instance) {
+		auto loc = instance.getDefinition().getSyntax()->sourceRange().start();
+		auto path = sourceManager.getFullPath(loc.buffer());
+		return std::make_pair(std::move(loc), std::move(path));
+	}
 
 	bool topological_sort_recursive(
 		std::vector<std::filesystem::path> &result,

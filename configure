@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+set -o pipefail
+if ! command -v cmake > /dev/null; then
+  echo "cmake required" > /dev/stderr
+  exit -1
+fi
+if ! command -v make > /dev/null; then
+  echo "make required" > /dev/stderr
+  exit -1
+fi
+if ! command -v xxd > /dev/null; then
+  echo "xxd required" > /dev/stderr
+  exit -1
+fi
+make build/compile_commands.json

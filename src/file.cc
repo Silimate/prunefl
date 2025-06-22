@@ -47,12 +47,12 @@ SourceNode::SourceNode(
 void SourceNode::output(FILE *f) const {
 	fmt::println(f, "{}:", get_path().c_str());
 	fmt::println(f, "  exported_macros:");
-	for (auto &macro : exported_macros) {
-		fmt::println(f, "    - {}", macro);
+	for (auto &macro : exported_macro_locations) {
+		fmt::println(f, "    - {}", macro.first);
 	}
 	fmt::println(f, "  unresolved_macros:");
-	for (auto &macro : unresolved_macros) {
-		fmt::println(f, "    - {}", macro);
+	for (auto &macro : unresolved_macro_locations) {
+		fmt::println(f, "    - {}", macro.first);
 	}
 	fmt::println(f, "  resolved_dependencies:");
 	for (auto &dep : dependencies) {
@@ -76,8 +76,12 @@ void SourceNode::process_directives(SourceBufferCallback source_buffer_cb) {
 
 	auto include_directives = preprocessor.getIncludeDirectives();
 	for (auto &include : include_directives) {
-		dependencies.insert(driver->sourceManager.getFullPath(include.buffer.id)
-		);
+		auto include_path =
+			driver->sourceManager.getFullPath(include.buffer.id);
+		auto include_directive_location = include.syntax->sourceRange().start();
+		assert(include_directive_location.buffer() == buffer.id);
+		includes[include_path] = include_directive_location;
+		dependencies.insert(include_path);
 		source_buffer_cb(include.buffer); // assume move
 	}
 
@@ -90,7 +94,6 @@ void SourceNode::process_define(const syntax::DefineDirectiveSyntax *define) {
 	std::string name{define->name.rawText()};
 	auto location = define->getFirstToken().location();
 	if (location.buffer() == buffer.id) {
-		exported_macros.insert(name);
 		exported_macro_locations[std::move(name)] = std::move(location);
 	}
 }
@@ -98,10 +101,10 @@ void SourceNode::process_define(const syntax::DefineDirectiveSyntax *define) {
 void SourceNode::process_usage(const parsing::Token &token) {
 	auto raw = token.rawText();
 	std::string name{raw.begin() + 1, raw.end()};
-	auto sameFileExportedLoc = exported_macro_locations.find(name);
-	if (sameFileExportedLoc == exported_macro_locations.end() ||
-		sameFileExportedLoc->second > token.location()) {
-		unresolved_macros.insert(std::move(name));
+	auto same_file_exported_loc = exported_macro_locations.find(name);
+	if (same_file_exported_loc == exported_macro_locations.end() ||
+		same_file_exported_loc->second > token.location()) {
+		unresolved_macro_locations[std::move(name)] = token.location();
 	}
 }
 

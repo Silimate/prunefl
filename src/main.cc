@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
 		}
 
 	} catch (std::runtime_error &e) {
-		OS::printE(e.what());
+		OS::printE(fmt::format("[FATAL] {}\n", e.what()));
 		return -1;
 	}
 }
