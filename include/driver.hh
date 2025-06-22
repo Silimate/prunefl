@@ -165,7 +165,9 @@ namespace nodo {
 				FILE *f = fopen(file.c_str(), "w");
 				if (f == nullptr) {
 					throw std::runtime_error(fmt::format(
-						"Failed to open file '{}' for output", file.c_str()
+						"Failed to open file '{}' for output: {}",
+						file.c_str(),
+						strerror(errno)
 					));
 				}
 				for (auto &tuple : source_nodes) {
