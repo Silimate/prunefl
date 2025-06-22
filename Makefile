@@ -19,3 +19,7 @@ lint: build/compile_commands.json
 .PHONY: format
 format:
 	clang-format -i src/* include/*
+
+.PHONY: demo
+demo: ./build/nodo
+	$< -C test/mvp_model/mvp_model.f --top module_b --debug-out-pfx ./debug/tree

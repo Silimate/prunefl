@@ -21,3 +21,6 @@ pdks/
 requirements_tmp.txt
 download/
 *.log
+
+# Notes
+/NOTES

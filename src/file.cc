@@ -17,34 +17,16 @@
 using namespace slang;
 
 namespace access_private {
-	// Expose private members
-	// template struct access<
-	// 	&parsing::Preprocessor::handleIncludeDirective>;
+	// Expose private member
 	template struct access<&parsing::Preprocessor::nextRaw>;
-	// Allow l-value for handleIncludeDirective argument
-	// constexpr decltype(auto) call(
-	// 	accessor_t<"handleIncludeDirective">,
-	// 	parsing::Preprocessor &,
-	// 	parsing::Token
-	// );
 } // namespace access_private
 
-SourceNode::SourceNode(
+nodo::SourceNode::SourceNode(
 	driver::Driver *driver, SourceBuffer &buffer, size_t load_order
 )
 	: driver(driver), buffer(buffer), load_order(load_order) {}
 
-// SourceNode::SourceNode(
-// 	SourceNode&& src
-// ): manager(manager), alloc(alloc) {
-// 	buffer = std::move(src.buffer);
-// 	buffer_id = src.buffer_id;
-// 	exported_macros = std::move(src.exported_macros);
-// 	unresolved_macros = std::move(src.unresolved_macros);
-// 	dependencies = std::move(src.dependencies);
-// }
-
-void SourceNode::output(FILE *f) const {
+void nodo::SourceNode::output(FILE *f) const {
 	fmt::println(f, "{}:", get_path().c_str());
 	fmt::println(f, "  exported_macros:");
 	for (auto &macro : exported_macro_locations) {
@@ -61,7 +43,9 @@ void SourceNode::output(FILE *f) const {
 	fflush(f);
 }
 
-void SourceNode::process_directives(SourceBufferCallback source_buffer_cb) {
+void nodo::SourceNode::process_directives(
+	nodo::SourceBufferCallback source_buffer_cb
+) {
 	Diagnostics diagnostics;
 	BumpAllocator alloc;
 	parsing::Preprocessor preprocessor(
@@ -90,7 +74,9 @@ void SourceNode::process_directives(SourceBufferCallback source_buffer_cb) {
 	}
 }
 
-void SourceNode::process_define(const syntax::DefineDirectiveSyntax *define) {
+void nodo::SourceNode::process_define(
+	const syntax::DefineDirectiveSyntax *define
+) {
 	std::string name{define->name.rawText()};
 	auto location = define->getFirstToken().location();
 	if (location.buffer() == buffer.id) {
@@ -98,7 +84,7 @@ void SourceNode::process_define(const syntax::DefineDirectiveSyntax *define) {
 	}
 }
 
-void SourceNode::process_usage(const parsing::Token &token) {
+void nodo::SourceNode::process_usage(const parsing::Token &token) {
 	auto raw = token.rawText();
 	std::string name{raw.begin() + 1, raw.end()};
 	auto same_file_exported_loc = exported_macro_locations.find(name);
@@ -108,7 +94,7 @@ void SourceNode::process_usage(const parsing::Token &token) {
 	}
 }
 
-void SourceNode::process_usages() {
+void nodo::SourceNode::process_usages() {
 	Diagnostics diagnostics;
 	BumpAllocator alloc;
 	parsing::Preprocessor preprocessor(
@@ -128,6 +114,6 @@ void SourceNode::process_usages() {
 	}
 }
 
-std::filesystem::path SourceNode::get_path() const {
+std::filesystem::path nodo::SourceNode::get_path() const {
 	return driver->sourceManager.getFullPath(buffer.id);
 }

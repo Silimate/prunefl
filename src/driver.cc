@@ -14,16 +14,22 @@ using namespace slang;
 
 extern unsigned char VERSION[];
 
-Driver::Driver() : driver::Driver() {
+nodo::Driver::Driver() : driver::Driver::Driver() {
 	addStandardArgs();
 	cmdLine.add("-h,--help", show_help, "Display available options");
 	cmdLine.add(
 		"--version", show_version, "Display version information and exit"
 	);
-	cmdLine.add("--debug-out-pfx", debug_output_prefix_string, "");
+	cmdLine.add(
+		"--debug-out-pfx",
+		debug_output_prefix_string,
+		"If specified, a number of log files showing the current state of the "
+		"node tree will be created as the process runs. Any requisite "
+		"directories will be created."
+	);
 }
 
-void Driver::parse_cli(int argc, char *argv[]) {
+void nodo::Driver::parse_cli(int argc, char *argv[]) {
 	if (!cmdLine.parse(argc, argv)) {
 		std::string what = "";
 		for (auto &err : cmdLine.getErrors()) {
@@ -40,8 +46,7 @@ void Driver::parse_cli(int argc, char *argv[]) {
 		exit(0);
 	}
 	if (!processOptions()) {
-		throw std::runtime_error(
-			"Failed to process slang command-line options"
+		throw std::runtime_error("Failed to process slang command-line options"
 		);
 	}
 
@@ -52,8 +57,8 @@ void Driver::parse_cli(int argc, char *argv[]) {
 	}
 }
 
-void Driver::prepare() {
-	// Parse sources and report compilation issues
+void nodo::Driver::prepare() {
+	// Parse sources and report compilation issues to stderr
 	parseAllSources();
 	compilation = createCompilation();
 	reportCompilation(*compilation, true);
@@ -70,9 +75,9 @@ void Driver::prepare() {
 	// buffers_tmp leftover structures deallocated
 }
 
-Driver::Resolution Driver::process_included_macros_recursive(
+nodo::Driver::Resolution nodo::Driver::process_included_macros_recursive(
 	std::unordered_map<std::filesystem::path, ResolutionCacheEntry> &cache,
-	std::shared_ptr<SourceNode> current_node
+	std::shared_ptr<nodo::SourceNode> current_node
 ) {
 	auto path = current_node->get_path();
 
@@ -120,7 +125,7 @@ Driver::Resolution Driver::process_included_macros_recursive(
 	return {current_node, resolved_macros_so_far};
 }
 
-void Driver::preprocess() {
+void nodo::Driver::preprocess() {
 	while (!buffer_preprocessing_queue.empty()) {
 		auto tuple =
 			std::move(buffer_preprocessing_queue.front()); // move buffer
@@ -130,8 +135,9 @@ void Driver::preprocess() {
 		if (source_nodes.find(path) != source_nodes.end()) {
 			continue;
 		}
-		auto node =
-			std::make_shared<SourceNode>(this, buffer, order); // move buffer
+		auto node = std::make_shared<nodo::SourceNode>(
+			this, buffer, order
+		); // move buffer
 		node->process([&](SourceBuffer &buffer) {
 			buffer_preprocessing_queue.push({std::move(buffer), -1}
 			); // move buffer
@@ -140,15 +146,16 @@ void Driver::preprocess() {
 		// local var buffer deallocated
 	}
 
-	std::unordered_map<std::filesystem::path, Driver::ResolutionCacheEntry>
-		node_states;
+	std::
+		unordered_map<std::filesystem::path, nodo::Driver::ResolutionCacheEntry>
+			node_states;
 	for (auto &[name, _] : source_nodes) {
-		node_states[name] = Driver::ResolutionCacheEntry();
+		node_states[name] = nodo::Driver::ResolutionCacheEntry();
 	}
 
 	bool errors_found = false;
 	for (auto &node : source_nodes) {
-		if (node_states[node.first].state != Driver::NodeState::visited) {
+		if (node_states[node.first].state != nodo::Driver::NodeState::visited) {
 			auto resolution =
 				process_included_macros_recursive(node_states, node.second);
 			if (resolution.file == nullptr) {
@@ -157,13 +164,7 @@ void Driver::preprocess() {
 		}
 	}
 
-	if (debug_output_prefix_string.has_value()) {
-		auto preprocessed = *debug_output_prefix_string + "_preprocessed.log";
-		FILE *f = fopen(preprocessed.c_str(), "w");
-		for (auto &tuple : source_nodes) {
-			tuple.second->output(f);
-		}
-	}
+	write_debug("_preprocessed.log");
 
 	if (errors_found) {
 		throw std::runtime_error(
@@ -172,11 +173,10 @@ void Driver::preprocess() {
 	}
 }
 
-Driver::Resolution Driver::process_module_dependencies_recursive(
-	std::unordered_map<std::filesystem::path, Driver::ResolutionCacheEntry>
-		&cache,
-	const ast::InstanceSymbol *current_instance,
-	int depth
+std::shared_ptr<nodo::SourceNode>
+nodo::Driver::process_module_dependencies_recursive(
+	std::unordered_map<std::filesystem::path, nodo::Driver::NodeState> &cache,
+	const ast::InstanceSymbol *current_instance
 ) {
 	// Get filepath and node pointer
 	auto [loc, path] = get_definition_syntax_location(*current_instance);
@@ -184,16 +184,16 @@ Driver::Resolution Driver::process_module_dependencies_recursive(
 
 	// Recursion: Check if result if cached, or if a cycle happened
 	auto cache_entry_it = cache.find(path);
-	auto &cache_entry = cache_entry_it->second;
-	if (cache_entry.state == NodeState::visited) {
-		return {current_node, cache_entry.resolved_macros}; // cached
+	auto cache_entry = cache_entry_it->second;
+	if (cache_entry == NodeState::visited) {
+		return current_node;
 	}
-	if (cache_entry.state == NodeState::visiting) {
-		return {nullptr, {}}; // cycle
+	if (cache_entry == NodeState::visiting) {
+		return nullptr; // cycle
 	}
-	cache_entry.state = NodeState::visiting;
+	cache_entry_it->second = NodeState::visiting;
 
-	// Resolve the modules and macros!
+	// Resolve the modules
 	std::set<std::string_view> resolved_macros_so_far;
 	for (auto &member : current_instance->body.members()) {
 		if (member.kind == ast::SymbolKind::Instance) {
@@ -201,45 +201,18 @@ Driver::Resolution Driver::process_module_dependencies_recursive(
 			auto [def_loc, def_path] =
 				get_definition_syntax_location(instance_symbol);
 			current_node->dependencies.insert(def_path);
-			auto resolution = process_module_dependencies_recursive(
-				cache, &instance_symbol, depth + 1
-			);
-			if (resolution.file == nullptr) {
+			auto resolution =
+				process_module_dependencies_recursive(cache, &instance_symbol);
+			if (resolution == nullptr) {
 				return resolution; // propagate detected cycle
-			}
-			for (auto definition :
-				 resolution.resolved_macros) { // no auto&, already string view
-				resolved_macros_so_far.insert(definition);
 			}
 		}
 	}
-	for (auto resolved_macro :
-		 resolved_macros_so_far) { // no auto&, already string view
-		current_node->unresolved_macro_locations.erase(
-			std::string(resolved_macro)
-		);
-	}
-	for (auto &current_file_macro : current_node->exported_macro_locations) {
-		resolved_macros_so_far.insert(current_file_macro.first);
-	}
-	cache_entry.state = NodeState::visited;
-	cache_entry.resolved_macros = resolved_macros_so_far;
-	return {current_node, resolved_macros_so_far};
+	cache_entry_it->second = NodeState::visited;
+	return current_node;
 }
 
-Driver::Resolution Driver::process_module_dependencies(
-	const slang::ast::InstanceSymbol *top_instance
-) {
-	std::unordered_map<std::filesystem::path, Driver::ResolutionCacheEntry>
-		node_states;
-	for (auto &[name, _] : source_nodes) {
-		node_states[name] = Driver::ResolutionCacheEntry();
-	}
-
-	return process_module_dependencies_recursive(node_states, top_instance, 0);
-}
-
-std::shared_ptr<SourceNode> Driver::module_resolution() {
+std::shared_ptr<nodo::SourceNode> nodo::Driver::module_resolution() {
 	auto &root = compilation->getRoot();
 	auto instances = root.topInstances;
 	if (instances.size() != 1) {
@@ -247,27 +220,30 @@ std::shared_ptr<SourceNode> Driver::module_resolution() {
 								 "found. Cannot prune file list.");
 	}
 	auto instance = instances[0];
-	auto resolution = process_module_dependencies(instance);
 
-	if (debug_output_prefix_string.has_value()) {
-		auto modules_resolved =
-			*debug_output_prefix_string + "_modules_resolved.log";
-		FILE *f = fopen(modules_resolved.c_str(), "w");
-		for (auto &tuple : source_nodes) {
-			tuple.second->output(f);
-		}
+	std::unordered_map<std::filesystem::path, nodo::Driver::NodeState>
+		node_states;
+	for (auto &[name, _] : source_nodes) {
+		node_states[name] = nodo::Driver::NodeState();
 	}
-	if (resolution.file == nullptr) {
+
+	auto resolution =
+		process_module_dependencies_recursive(node_states, instance);
+
+	write_debug("_modules_resolved.log");
+
+	if (resolution == nullptr) {
 		throw std::runtime_error("Cycle detected while resolving module "
 								 "hierarchy. Cannot prune file list.");
 	}
-	return resolution.file;
+	return resolution;
 }
 
-bool Driver::topological_sort_recursive(
+bool nodo::Driver::topological_sort_recursive(
 	std::vector<std::filesystem::path> &result,
-	std::unordered_map<std::filesystem::path, Driver::NodeState> &node_states,
-	std::shared_ptr<SourceNode> target
+	std::unordered_map<std::filesystem::path, nodo::Driver::NodeState>
+		&node_states,
+	std::shared_ptr<nodo::SourceNode> target
 ) {
 	auto path = target->get_path();
 	auto state = node_states.find(path)->second;
@@ -290,9 +266,9 @@ bool Driver::topological_sort_recursive(
 	return true;
 }
 
-void Driver::topological_sort(
+void nodo::Driver::topological_sort(
 	std::vector<std::filesystem::path> &result,
-	std::shared_ptr<SourceNode> top_node
+	std::shared_ptr<nodo::SourceNode> top_node
 ) {
 	result.clear();
 
@@ -311,19 +287,19 @@ void Driver::topological_sort(
 
 struct SourceNodeOrderComparator {
 	bool operator()(
-		const std::shared_ptr<SourceNode> &a,
-		const std::shared_ptr<SourceNode> &b
+		const std::shared_ptr<nodo::SourceNode> &a,
+		const std::shared_ptr<nodo::SourceNode> &b
 	) const {
 		return a->load_order < b->load_order;
 	}
 };
 
-void Driver::implicit_macro_resolution() {
+void nodo::Driver::implicit_macro_resolution() {
 	// Maps each macro name to the set of source nodes that export it,
 	// ordered by SourceNodeOrderComparator (likely by load_order).
 	std::map<
 		std::string_view,
-		std::set<std::shared_ptr<SourceNode>, SourceNodeOrderComparator>>
+		std::set<std::shared_ptr<nodo::SourceNode>, SourceNodeOrderComparator>>
 		macro_to_exporters;
 
 	// First pass: collect all macro exporters
@@ -378,11 +354,5 @@ void Driver::implicit_macro_resolution() {
 		}
 	}
 
-	if (debug_output_prefix_string.has_value()) {
-		auto resolved = *debug_output_prefix_string + "_resolved.log";
-		FILE *f = fopen(resolved.c_str(), "w");
-		for (auto &tuple : source_nodes) {
-			tuple.second->output(f);
-		}
-	}
+	write_debug("_macros_resolved.log");
 }
