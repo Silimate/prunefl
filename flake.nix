@@ -16,9 +16,9 @@
         (pkgs': pkgs: let
           callPackage = lib.callPackageWith pkgs';
         in {
-          # nodo = callPackage ./default.nix {
-          #   flake = self;
-          # };
+          nodo = callPackage ./default.nix {
+            flake = self;
+          };
         })
       ];
     };
@@ -36,23 +36,8 @@
         pkgs = self.legacyPackages."${system}";
         callPackage = lib.callPackageWith pkgs;
       in {
-        # inherit (pkgs) nodo;
-        # default = pkgs.nodo;
-      }
-    );
-
-    devShells = nix-eda.forAllSystems (
-      system: let
-        pkgs = self.legacyPackages."${system}";
-        callPackage = lib.callPackageWith pkgs;
-      in {
-        default = pkgs.mkShell.override {stdenv = pkgs.llvmPackages_18.stdenv;} {
-          nativeBuildInputs = [
-            pkgs.cmake
-            pkgs.llvmPackages_18.clang-tools
-            pkgs.xxd
-          ];
-        };
+        inherit (pkgs) nodo;
+        default = pkgs.nodo;
       }
     );
   };

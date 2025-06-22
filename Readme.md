@@ -19,6 +19,14 @@ returns the minimal list of files required for the top module to compile.
 make -j$(nproc)
 ```
 
+## Nix
+
+```
+nix build -L '.?submodules=1#nodo'
+```
+
+The binary will be in `./result/bin/nodo`.
+
 # Usage
 
 Make sure to use exactly -C or implicit macro resolution may go haywire.

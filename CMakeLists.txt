@@ -3,13 +3,6 @@ cmake_minimum_required(VERSION 3.30)
 project(nodo)
 
 # Submodules and Third Party
-include(FetchContent)
-FetchContent_Declare(
-    argparse
-    GIT_REPOSITORY https://github.com/p-ranav/argparse.git
-)
-FetchContent_MakeAvailable(argparse)
-
 add_subdirectory(third_party/slang)
 
 # Version
@@ -25,4 +18,4 @@ add_executable(nodo src/main.cc src/driver.cc src/file.cc "${CMAKE_CURRENT_BINAR
 set_property(TARGET nodo PROPERTY CXX_STANDARD 20)
 target_include_directories(nodo PUBLIC include)
 target_include_directories(nodo PRIVATE third_party/access_private_20/include)
-target_link_libraries(nodo PUBLIC slang_slang fmt::fmt argparse)
+target_link_libraries(nodo PUBLIC slang::slang)
