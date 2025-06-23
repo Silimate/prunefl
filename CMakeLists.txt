@@ -4,7 +4,14 @@ project(prunefl)
 
 # Submodules and Third Party
 add_subdirectory(third_party/slang)
-
+set_target_properties(
+  slang_slang
+  # otherwise there's a huge linker warning dump on macOS that obscures any
+  # actual issues with the codebase
+  PROPERTIES 
+    CXX_VISIBILITY_PRESET default
+    VISIBILITY_INLINES_HIDDEN OFF
+)
 # Version
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/version.cc"

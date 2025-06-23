@@ -11,8 +11,8 @@
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
 
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
 
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -170,16 +170,18 @@ void prunefl::Driver::preprocess() {
 		// local var buffer deallocated
 	}
 
-	std::
-		unordered_map<std::filesystem::path, prunefl::Driver::ResolutionCacheEntry>
-			node_states;
+	std::unordered_map<
+		std::filesystem::path,
+		prunefl::Driver::ResolutionCacheEntry>
+		node_states;
 	for (auto &[name, _] : source_nodes) {
 		node_states[name] = prunefl::Driver::ResolutionCacheEntry();
 	}
 
 	bool errors_found = false;
 	for (auto &node : source_nodes) {
-		if (node_states[node.first].state != prunefl::Driver::NodeState::visited) {
+		if (node_states[node.first].state !=
+			prunefl::Driver::NodeState::visited) {
 			auto resolution =
 				process_included_macros_recursive(node_states, node.second);
 			if (resolution.file == nullptr) {
@@ -199,7 +201,8 @@ void prunefl::Driver::preprocess() {
 
 std::shared_ptr<prunefl::SourceNode>
 prunefl::Driver::process_module_dependencies_recursive(
-	std::unordered_map<std::filesystem::path, prunefl::Driver::NodeState> &cache,
+	std::unordered_map<std::filesystem::path, prunefl::Driver::NodeState>
+		&cache,
 	const ast::InstanceSymbol *current_instance
 ) {
 	// Get filepath and node pointer
@@ -323,7 +326,9 @@ void prunefl::Driver::implicit_macro_resolution() {
 	// ordered by SourceNodeOrderComparator (likely by load_order).
 	std::map<
 		std::string_view,
-		std::set<std::shared_ptr<prunefl::SourceNode>, SourceNodeOrderComparator>>
+		std::set<
+			std::shared_ptr<prunefl::SourceNode>,
+			SourceNodeOrderComparator>>
 		macro_to_exporters;
 
 	// First pass: collect all macro exporters
