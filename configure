@@ -9,8 +9,8 @@ if ! command -v make > /dev/null; then
   echo "make required" > /dev/stderr
   exit -1
 fi
-if ! command -v xxd > /dev/null; then
-  echo "xxd required" > /dev/stderr
+if ! command -v python3 > /dev/null; then
+  echo "python3 required" > /dev/stderr
   exit -1
 fi
 make build/compile_commands.json

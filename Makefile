@@ -1,9 +1,9 @@
 SOURCES = $(wildcard src/*.cc)
 HEADERS = $(wildcard include/*.hh)
 
-all: build/nodo
+all: build/prunefl
 
-build/nodo: build/compile_commands.json $(SOURCES) $(HEADERS)
+build/prunefl: build/compile_commands.json $(SOURCES) $(HEADERS)
 	mkdir -p $(@D)
 	$(MAKE) -C $(@D)
 
@@ -21,5 +21,5 @@ format:
 	clang-format -i src/* include/*
 
 .PHONY: demo
-demo: ./build/nodo
+demo: ./build/prunefl
 	$< -C test/mvp_model/mvp_model.f --top module_b --debug-out-pfx ./debug/tree

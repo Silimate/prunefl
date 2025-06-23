@@ -16,7 +16,7 @@
         (pkgs': pkgs: let
           callPackage = lib.callPackageWith pkgs';
         in {
-          nodo = callPackage ./default.nix {
+          prunefl = callPackage ./default.nix {
             flake = self;
           };
         })
@@ -36,8 +36,8 @@
         pkgs = self.legacyPackages."${system}";
         callPackage = lib.callPackageWith pkgs;
       in {
-        inherit (pkgs) nodo;
-        default = pkgs.nodo;
+        inherit (pkgs) prunefl;
+        default = pkgs.prunefl;
       }
     );
   };

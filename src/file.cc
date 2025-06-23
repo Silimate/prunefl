@@ -1,3 +1,27 @@
+// From prunefl
+
+// MIT License
+
+// Copyright (c) 2025 Silimate Inc.
+
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 #include "file.hh"
 
 #include <access_private.hpp>
@@ -21,12 +45,12 @@ namespace access_private {
 	template struct access<&parsing::Preprocessor::nextRaw>;
 } // namespace access_private
 
-nodo::SourceNode::SourceNode(
+prunefl::SourceNode::SourceNode(
 	driver::Driver *driver, SourceBuffer &buffer, size_t load_order
 )
 	: driver(driver), buffer(buffer), load_order(load_order) {}
 
-void nodo::SourceNode::output(FILE *f) const {
+void prunefl::SourceNode::output(FILE *f) const {
 	fmt::println(f, "{}:", get_path().c_str());
 	fmt::println(f, "  exported_macros:");
 	for (auto &macro : exported_macro_locations) {
@@ -43,8 +67,8 @@ void nodo::SourceNode::output(FILE *f) const {
 	fflush(f);
 }
 
-void nodo::SourceNode::process_directives(
-	nodo::SourceBufferCallback source_buffer_cb
+void prunefl::SourceNode::process_directives(
+	prunefl::SourceBufferCallback source_buffer_cb
 ) {
 	Diagnostics diagnostics;
 	BumpAllocator alloc;
@@ -74,7 +98,7 @@ void nodo::SourceNode::process_directives(
 	}
 }
 
-void nodo::SourceNode::process_define(
+void prunefl::SourceNode::process_define(
 	const syntax::DefineDirectiveSyntax *define
 ) {
 	std::string name{define->name.rawText()};
@@ -84,7 +108,7 @@ void nodo::SourceNode::process_define(
 	}
 }
 
-void nodo::SourceNode::process_usage(const parsing::Token &token) {
+void prunefl::SourceNode::process_usage(const parsing::Token &token) {
 	auto raw = token.rawText();
 	std::string name{raw.begin() + 1, raw.end()};
 	auto same_file_exported_loc = exported_macro_locations.find(name);
@@ -94,7 +118,7 @@ void nodo::SourceNode::process_usage(const parsing::Token &token) {
 	}
 }
 
-void nodo::SourceNode::process_usages() {
+void prunefl::SourceNode::process_usages() {
 	Diagnostics diagnostics;
 	BumpAllocator alloc;
 	parsing::Preprocessor preprocessor(
@@ -114,6 +138,6 @@ void nodo::SourceNode::process_usages() {
 	}
 }
 
-std::filesystem::path nodo::SourceNode::get_path() const {
+std::filesystem::path prunefl::SourceNode::get_path() const {
 	return driver->sourceManager.getFullPath(buffer.id);
 }

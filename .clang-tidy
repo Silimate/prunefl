@@ -3,17 +3,12 @@ Checks: >
   readability-identifier-naming
 
 CheckOptions:
-  # Class and Struct use CamelCase (UpperCamelCase)
   - key:             readability-identifier-naming.ClassCase
     value:           CamelCase
   - key:             readability-identifier-naming.StructCase
     value:           CamelCase
-
-  # Namespace remains lower_case
   - key:             readability-identifier-naming.NamespaceCase
     value:           lower_case
-
-  # Everything else uses lower_case
   - key:             readability-identifier-naming.EnumCase
     value:           CamelCase
   - key:             readability-identifier-naming.EnumConstantCase

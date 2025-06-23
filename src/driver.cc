@@ -1,3 +1,27 @@
+// From prunefl
+
+// MIT License
+
+// Copyright (c) 2025 Silimate Inc.
+
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 #include "driver.hh"
 
 #include <slang/ast/ASTVisitor.h>
@@ -12,9 +36,9 @@
 
 using namespace slang;
 
-extern unsigned char VERSION[];
+extern const char *VERSION;
 
-nodo::Driver::Driver() : driver::Driver::Driver() {
+prunefl::Driver::Driver() : driver::Driver::Driver() {
 	addStandardArgs();
 	cmdLine.add("-h,--help", show_help, "Display available options");
 	cmdLine.add(
@@ -29,7 +53,7 @@ nodo::Driver::Driver() : driver::Driver::Driver() {
 	);
 }
 
-void nodo::Driver::parse_cli(int argc, char *argv[]) {
+void prunefl::Driver::parse_cli(int argc, char *argv[]) {
 	if (!cmdLine.parse(argc, argv)) {
 		std::string what = "";
 		for (auto &err : cmdLine.getErrors()) {
@@ -38,11 +62,11 @@ void nodo::Driver::parse_cli(int argc, char *argv[]) {
 		throw std::runtime_error(what);
 	}
 	if (show_help == true) {
-		OS::print(fmt::format("{}", cmdLine.getHelpText("nodo")));
+		OS::print(fmt::format("{}", cmdLine.getHelpText("prunefl")));
 		exit(0);
 	}
 	if (show_version == true) {
-		OS::print(fmt::format("nodo {}", (const char *)VERSION));
+		OS::print(fmt::format("prunefl {}\n", (const char *)VERSION));
 		exit(0);
 	}
 	if (!processOptions()) {
@@ -57,7 +81,7 @@ void nodo::Driver::parse_cli(int argc, char *argv[]) {
 	}
 }
 
-void nodo::Driver::prepare() {
+void prunefl::Driver::prepare() {
 	// Parse sources and report compilation issues to stderr
 	parseAllSources();
 	compilation = createCompilation();
@@ -75,9 +99,9 @@ void nodo::Driver::prepare() {
 	// buffers_tmp leftover structures deallocated
 }
 
-nodo::Driver::Resolution nodo::Driver::process_included_macros_recursive(
+prunefl::Driver::Resolution prunefl::Driver::process_included_macros_recursive(
 	std::unordered_map<std::filesystem::path, ResolutionCacheEntry> &cache,
-	std::shared_ptr<nodo::SourceNode> current_node
+	std::shared_ptr<prunefl::SourceNode> current_node
 ) {
 	auto path = current_node->get_path();
 
@@ -125,7 +149,7 @@ nodo::Driver::Resolution nodo::Driver::process_included_macros_recursive(
 	return {current_node, resolved_macros_so_far};
 }
 
-void nodo::Driver::preprocess() {
+void prunefl::Driver::preprocess() {
 	while (!buffer_preprocessing_queue.empty()) {
 		auto tuple =
 			std::move(buffer_preprocessing_queue.front()); // move buffer
@@ -135,7 +159,7 @@ void nodo::Driver::preprocess() {
 		if (source_nodes.find(path) != source_nodes.end()) {
 			continue;
 		}
-		auto node = std::make_shared<nodo::SourceNode>(
+		auto node = std::make_shared<prunefl::SourceNode>(
 			this, buffer, order
 		); // move buffer
 		node->process([&](SourceBuffer &buffer) {
@@ -147,15 +171,15 @@ void nodo::Driver::preprocess() {
 	}
 
 	std::
-		unordered_map<std::filesystem::path, nodo::Driver::ResolutionCacheEntry>
+		unordered_map<std::filesystem::path, prunefl::Driver::ResolutionCacheEntry>
 			node_states;
 	for (auto &[name, _] : source_nodes) {
-		node_states[name] = nodo::Driver::ResolutionCacheEntry();
+		node_states[name] = prunefl::Driver::ResolutionCacheEntry();
 	}
 
 	bool errors_found = false;
 	for (auto &node : source_nodes) {
-		if (node_states[node.first].state != nodo::Driver::NodeState::visited) {
+		if (node_states[node.first].state != prunefl::Driver::NodeState::visited) {
 			auto resolution =
 				process_included_macros_recursive(node_states, node.second);
 			if (resolution.file == nullptr) {
@@ -173,9 +197,9 @@ void nodo::Driver::preprocess() {
 	}
 }
 
-std::shared_ptr<nodo::SourceNode>
-nodo::Driver::process_module_dependencies_recursive(
-	std::unordered_map<std::filesystem::path, nodo::Driver::NodeState> &cache,
+std::shared_ptr<prunefl::SourceNode>
+prunefl::Driver::process_module_dependencies_recursive(
+	std::unordered_map<std::filesystem::path, prunefl::Driver::NodeState> &cache,
 	const ast::InstanceSymbol *current_instance
 ) {
 	// Get filepath and node pointer
@@ -212,7 +236,7 @@ nodo::Driver::process_module_dependencies_recursive(
 	return current_node;
 }
 
-std::shared_ptr<nodo::SourceNode> nodo::Driver::module_resolution() {
+std::shared_ptr<prunefl::SourceNode> prunefl::Driver::module_resolution() {
 	auto &root = compilation->getRoot();
 	auto instances = root.topInstances;
 	if (instances.size() != 1) {
@@ -221,10 +245,10 @@ std::shared_ptr<nodo::SourceNode> nodo::Driver::module_resolution() {
 	}
 	auto instance = instances[0];
 
-	std::unordered_map<std::filesystem::path, nodo::Driver::NodeState>
+	std::unordered_map<std::filesystem::path, prunefl::Driver::NodeState>
 		node_states;
 	for (auto &[name, _] : source_nodes) {
-		node_states[name] = nodo::Driver::NodeState();
+		node_states[name] = prunefl::Driver::NodeState();
 	}
 
 	auto resolution =
@@ -239,11 +263,11 @@ std::shared_ptr<nodo::SourceNode> nodo::Driver::module_resolution() {
 	return resolution;
 }
 
-bool nodo::Driver::topological_sort_recursive(
+bool prunefl::Driver::topological_sort_recursive(
 	std::vector<std::filesystem::path> &result,
-	std::unordered_map<std::filesystem::path, nodo::Driver::NodeState>
+	std::unordered_map<std::filesystem::path, prunefl::Driver::NodeState>
 		&node_states,
-	std::shared_ptr<nodo::SourceNode> target
+	std::shared_ptr<prunefl::SourceNode> target
 ) {
 	auto path = target->get_path();
 	auto state = node_states.find(path)->second;
@@ -266,9 +290,9 @@ bool nodo::Driver::topological_sort_recursive(
 	return true;
 }
 
-void nodo::Driver::topological_sort(
+void prunefl::Driver::topological_sort(
 	std::vector<std::filesystem::path> &result,
-	std::shared_ptr<nodo::SourceNode> top_node
+	std::shared_ptr<prunefl::SourceNode> top_node
 ) {
 	result.clear();
 
@@ -287,19 +311,19 @@ void nodo::Driver::topological_sort(
 
 struct SourceNodeOrderComparator {
 	bool operator()(
-		const std::shared_ptr<nodo::SourceNode> &a,
-		const std::shared_ptr<nodo::SourceNode> &b
+		const std::shared_ptr<prunefl::SourceNode> &a,
+		const std::shared_ptr<prunefl::SourceNode> &b
 	) const {
 		return a->load_order < b->load_order;
 	}
 };
 
-void nodo::Driver::implicit_macro_resolution() {
+void prunefl::Driver::implicit_macro_resolution() {
 	// Maps each macro name to the set of source nodes that export it,
 	// ordered by SourceNodeOrderComparator (likely by load_order).
 	std::map<
 		std::string_view,
-		std::set<std::shared_ptr<nodo::SourceNode>, SourceNodeOrderComparator>>
+		std::set<std::shared_ptr<prunefl::SourceNode>, SourceNodeOrderComparator>>
 		macro_to_exporters;
 
 	// First pass: collect all macro exporters

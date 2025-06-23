@@ -10,11 +10,12 @@
   mimalloc,
 }:
 llvmPackages_18.stdenv.mkDerivation {
-  pname = "nodo";
+  pname = "prunefl";
   version = lib.strings.trim (builtins.readFile ./VERSION);
   
   src = flake;
   
+  # Substitute minimum versions for those available in nixpkgs - likely overconstrained by slang itself
   postPatch = ''
     perl -i.bak -pe 's/set\(fmt_min_version\s*"[\d\.]+"/set(fmt_min_version "${fmt_11.version}"/' third_party/slang/external/CMakeLists.txt
     perl -i.bak -pe 's/set\(mimalloc_min_version\s*"[\d\.]+"/set(mimalloc_min_version "${mimalloc.version}"/' third_party/slang/external/CMakeLists.txt
@@ -23,14 +24,13 @@ llvmPackages_18.stdenv.mkDerivation {
   nativeBuildInputs = [
     cmake
     llvmPackages_18.clang-tools
-    xxd
     perl
   ];
   
   installPhase = ''
     runHook preInstall
     mkdir -p $out/bin
-    cp nodo $out/bin/nodo
+    cp prunefl $out/bin/prunefl
     runHook postInstall
   '';
   
@@ -39,4 +39,11 @@ llvmPackages_18.stdenv.mkDerivation {
     fmt_11
     mimalloc
   ];
+  
+  meta = {
+    description = "SystemVerilog File Pruning Utility";
+    homepage = "https://github.com/silimate/prunefl";
+    license = lib.licenses.mit;
+    platforms = lib.platforms.all;
+  };
 }
