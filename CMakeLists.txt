@@ -16,7 +16,7 @@ set_target_properties(
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/version.cc"
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    COMMAND cat "${PROJECT_SOURCE_DIR}/VERSION" | python3 "${PROJECT_SOURCE_DIR}/misc/version_to_cpp.py" > "${CMAKE_CURRENT_BINARY_DIR}/version.cc"
+    COMMAND cat "${PROJECT_SOURCE_DIR}/VERSION" | python3 "${PROJECT_SOURCE_DIR}/misc/file2utf8z.py" VERSION > "${CMAKE_CURRENT_BINARY_DIR}/version.cc"
     MAIN_DEPENDENCY "${PROJECT_SOURCE_DIR}/VERSION"
 )
 

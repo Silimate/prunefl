@@ -36,7 +36,7 @@
 
 using namespace slang;
 
-extern const char *VERSION;
+extern const char VERSION[];
 
 prunefl::Driver::Driver() : driver::Driver::Driver() {
 	addStandardArgs();
@@ -199,6 +199,52 @@ void prunefl::Driver::preprocess() {
 	}
 }
 
+std::string dump_hierarchical_reference(const ast::HierarchicalValueExpression &expr) {
+	std::stringstream res;
+	for (auto &el: expr.ref.path) {
+		if (auto arr = std::get_if<slang::int32_t>(&el.selector)) {
+			res << "[" << *arr << "]";
+		} else if (auto range = std::get_if<std::pair<int32_t, int32_t>>(&el.selector)) {
+			res << "[" << range->first << ":" << range->second << "]";
+		} else if (auto identifier = std::get_if<std::string_view>(&el.selector)) {
+			res << "." << *identifier << std::endl;
+		}
+	}
+	return res.str();
+}
+
+class DependencyCollector : public ast::ASTVisitor<DependencyCollector, true, true> {  
+public:
+	std::vector<const ast::ValueSymbol *> referenced_symbols{};
+	std::vector<const ast::SubroutineSymbol *> subroutines{};
+	std::vector<const ast::Type *> types{};
+	
+	DependencyCollector() {}
+	
+	void handle(const ast::NewClassExpression& expr) {
+		auto cls = expr.type.get();
+		types.push_back(cls);
+		visitDefault(expr);
+	}
+
+	void handle(const ast::CallExpression& expr) {
+		if (!expr.isSystemCall()) {
+			auto subroutine = std::get<const ast::SubroutineSymbol*>(expr.subroutine);
+			subroutines.push_back(subroutine);
+		}
+		visitDefault(expr);
+	}
+	
+	void handle(const ast::HierarchicalValueExpression& expr) {
+		fmt::println("{}", dump_hierarchical_reference(expr));
+	}
+
+	void handle(const ast::NamedValueExpression& expr) {
+		referenced_symbols.push_back(&expr.symbol);
+		visitDefault(expr);
+	}
+};
+
 std::shared_ptr<prunefl::SourceNode>
 prunefl::Driver::process_module_dependencies_recursive(
 	std::unordered_map<std::filesystem::path, prunefl::Driver::NodeState>
@@ -220,9 +266,66 @@ prunefl::Driver::process_module_dependencies_recursive(
 	}
 	cache_entry_it->second = NodeState::visiting;
 
-	// Resolve the modules
+	// Collect dependencies
+	DependencyCollector dc;
+
 	std::set<std::string_view> resolved_macros_so_far;
-	for (auto &member : current_instance->body.members()) {
+	auto &definition = current_instance->getDefinition();
+	auto implementation_syntax = definition.getSyntax();
+	auto &implementation_body = current_instance->body;
+	implementation_body.visit(dc);
+	
+	for (auto symbol: dc.referenced_symbols) {
+		// if a symbol is typed, it might be an enum -- this lets us pull in the
+		// enum
+		auto &type = symbol->getType();
+		auto type_syntax = type.getSyntax();
+		if (type_syntax) {	
+			auto dec_loc = type_syntax->getFirstToken().location();
+			auto dec_path = sourceManager.getFullPath(dec_loc.buffer());
+			if (dec_path != path) {
+				current_node->dependencies.insert(dec_path);
+			}
+		}
+		
+		// it could be a parameter itself
+		auto symbol_syntax = symbol->getSyntax();
+		if (symbol_syntax) {
+			auto dec_loc = symbol_syntax->getFirstToken().location();
+			auto dec_path = sourceManager.getFullPath(dec_loc.buffer());
+			if (dec_path != path) {
+				current_node->dependencies.insert(dec_path);
+			}
+		}
+	}
+	for (auto type : dc.types) {
+		auto declaration = type->getDeclaringDefinition();
+		if (declaration) {	
+			auto dec_loc = declaration->getSyntax()->getFirstToken().location();
+			auto dec_path = sourceManager.getFullPath(dec_loc.buffer());
+			if (dec_path != path) {
+				current_node->dependencies.insert(dec_path);
+			}
+		}
+	}
+	for (auto subroutine : dc.subroutines) {
+		auto declaration = subroutine->getDeclaringDefinition();
+		if (declaration) {
+			auto dec_loc = declaration->getSyntax()->getFirstToken().location();
+			auto dec_path = sourceManager.getFullPath(dec_loc.buffer());
+			if (dec_path != path) {
+				current_node->dependencies.insert(dec_path);
+			}
+		}
+		auto &definition = subroutine->getBody();
+		auto def_loc = definition.syntax->getFirstToken().location();
+		auto def_path = sourceManager.getFullPath(def_loc.buffer());
+		if (def_path != path) {
+			current_node->dependencies.insert(def_path);
+		}
+	}
+	 
+	for (auto &member : implementation_body.members()) {
 		if (member.kind == ast::SymbolKind::Instance) {
 			auto &instance_symbol = member.as<ast::InstanceSymbol>();
 			auto [def_loc, def_path] =
@@ -233,6 +336,10 @@ prunefl::Driver::process_module_dependencies_recursive(
 			if (resolution == nullptr) {
 				return resolution; // propagate detected cycle
 			}
+		} else if (member.kind == ast::SymbolKind::Port) {
+			auto &port_symbol = member.as<ast::PortSymbol>();
+		} else if (member.kind == ast::SymbolKind::Variable) {
+			auto &var_symbol = member.as<ast::VariableSymbol>();
 		}
 	}
 	cache_entry_it->second = NodeState::visited;
