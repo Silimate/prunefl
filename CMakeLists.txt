@@ -21,7 +21,7 @@ add_custom_command(
 )
 
 # Products
-add_executable(prunefl src/main.cc src/driver.cc src/file.cc "${CMAKE_CURRENT_BINARY_DIR}/version.cc")
+add_executable(prunefl src/main.cc src/driver.cc "${CMAKE_CURRENT_BINARY_DIR}/version.cc")
 set_property(TARGET prunefl PROPERTY CXX_STANDARD 20)
 target_include_directories(prunefl PUBLIC include)
 target_include_directories(prunefl PRIVATE third_party/access_private_20/include)

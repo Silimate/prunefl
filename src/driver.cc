@@ -44,13 +44,6 @@ prunefl::Driver::Driver() : driver::Driver::Driver() {
 	cmdLine.add(
 		"--version", show_version, "Display version information and exit"
 	);
-	cmdLine.add(
-		"--debug-out-pfx",
-		debug_output_prefix_string,
-		"If specified, a number of log files showing the current state of the "
-		"node tree will be created as the process runs. Any requisite "
-		"directories will be created."
-	);
 }
 
 void prunefl::Driver::parse_cli(int argc, char *argv[]) {
@@ -80,306 +73,21 @@ void prunefl::Driver::parse_cli(int argc, char *argv[]) {
 		);
 	}
 }
-
 void prunefl::Driver::prepare() {
 	// Parse sources and report compilation issues to stderr
 	parseAllSources();
 	compilation = createCompilation();
 	reportCompilation(*compilation, true);
 	reportDiagnostics(true);
-
-	// Recreate file list (with fully resolved paths)
-	auto buffers_tmp = std::move(sourceLoader.loadSources()); // move buffers
-	size_t file_index = 0;
-	for (auto &buffer : buffers_tmp) { // reference
-		buffer_preprocessing_queue.push(
-			std::make_pair(std::move(buffer), file_index++)
-		); // move buffer
-	}
-	// buffers_tmp leftover structures deallocated
-}
-
-prunefl::Driver::Resolution prunefl::Driver::process_included_macros_recursive(
-	std::unordered_map<std::filesystem::path, ResolutionCacheEntry> &cache,
-	std::shared_ptr<prunefl::SourceNode> current_node
-) {
-	auto path = current_node->get_path();
-
-	// Recursion: Check if result if cached, or if a cycle happened
-	auto cache_entry_it = cache.find(path);
-	auto &cache_entry = cache_entry_it->second;
-	if (cache_entry.state == NodeState::visited) {
-		return {current_node, cache_entry.resolved_macros}; // cached
-	}
-	if (cache_entry.state == NodeState::visiting) {
-		return {nullptr, {}}; // cycle
-	}
-	cache_entry.state = NodeState::visiting;
-
-	// Includes
-	std::set<std::string_view> resolved_macros_so_far;
-	for (auto &include : current_node->includes) {
-		auto &[inc_path, inc_loc] = include;
-		auto resolution =
-			process_included_macros_recursive(cache, source_nodes[inc_path]);
-		if (resolution.file == nullptr) {
-			return resolution; // propagate detected cycle
-		}
-		for (auto &macro : resolution.resolved_macros) {
-			current_node->exported_macro_locations[std::string{macro}] =
-				inc_loc;
-			resolved_macros_so_far.insert(macro);
-			auto potential_usage =
-				current_node->unresolved_macro_locations.find(std::string{macro}
-				);
-			if (potential_usage !=
-					current_node->unresolved_macro_locations.end() &&
-				potential_usage->second > inc_loc) {
-				current_node->unresolved_macro_locations.erase(std::string(macro
-				));
-			}
-		}
-	}
-	for (auto &macro_export : current_node->exported_macro_locations) {
-		resolved_macros_so_far.insert(macro_export.first);
-		// no need to resolve in-file, already done
-	}
-	cache_entry.state = NodeState::visited;
-	cache_entry.resolved_macros = resolved_macros_so_far;
-	return {current_node, resolved_macros_so_far};
-}
-
-void prunefl::Driver::preprocess() {
-	while (!buffer_preprocessing_queue.empty()) {
-		auto tuple =
-			std::move(buffer_preprocessing_queue.front()); // move buffer
-		buffer_preprocessing_queue.pop(); // pop leftover structure
-		auto &[buffer, order] = tuple;	  // reference buffer
-		auto path = sourceManager.getFullPath(buffer.id);
-		if (source_nodes.find(path) != source_nodes.end()) {
-			continue;
-		}
-		auto node = std::make_shared<prunefl::SourceNode>(
-			this, buffer, order
-		); // move buffer
-		node->process([&](SourceBuffer &buffer) {
-			buffer_preprocessing_queue.push({std::move(buffer), -1}
-			); // move buffer
-		});
-		source_nodes[path] = node;
-		// local var buffer deallocated
-	}
-
-	std::unordered_map<
-		std::filesystem::path,
-		prunefl::Driver::ResolutionCacheEntry>
-		node_states;
-	for (auto &[name, _] : source_nodes) {
-		node_states[name] = prunefl::Driver::ResolutionCacheEntry();
-	}
-
-	bool errors_found = false;
-	for (auto &node : source_nodes) {
-		if (node_states[node.first].state !=
-			prunefl::Driver::NodeState::visited) {
-			auto resolution =
-				process_included_macros_recursive(node_states, node.second);
-			if (resolution.file == nullptr) {
-				errors_found = true;
-			}
-		}
-	}
-
-	write_debug("_preprocessed.log");
-
-	if (errors_found) {
-		throw std::runtime_error(
-			"Cycle detected while processing includes. Cannot prune file list."
-		);
-	}
-}
-
-std::string dump_hierarchical_reference(const ast::HierarchicalValueExpression &expr) {
-	std::stringstream res;
-	for (auto &el: expr.ref.path) {
-		if (auto arr = std::get_if<slang::int32_t>(&el.selector)) {
-			res << "[" << *arr << "]";
-		} else if (auto range = std::get_if<std::pair<int32_t, int32_t>>(&el.selector)) {
-			res << "[" << range->first << ":" << range->second << "]";
-		} else if (auto identifier = std::get_if<std::string_view>(&el.selector)) {
-			res << "." << *identifier << std::endl;
-		}
-	}
-	return res.str();
-}
-
-class DependencyCollector : public ast::ASTVisitor<DependencyCollector, true, true> {  
-public:
-	std::vector<const ast::ValueSymbol *> referenced_symbols{};
-	std::vector<const ast::SubroutineSymbol *> subroutines{};
-	std::vector<const ast::Type *> types{};
-	
-	DependencyCollector() {}
-	
-	void handle(const ast::NewClassExpression& expr) {
-		auto cls = expr.type.get();
-		types.push_back(cls);
-		visitDefault(expr);
-	}
-
-	void handle(const ast::CallExpression& expr) {
-		if (!expr.isSystemCall()) {
-			auto subroutine = std::get<const ast::SubroutineSymbol*>(expr.subroutine);
-			subroutines.push_back(subroutine);
-		}
-		visitDefault(expr);
-	}
-	
-	void handle(const ast::HierarchicalValueExpression& expr) {
-		fmt::println("{}", dump_hierarchical_reference(expr));
-	}
-
-	void handle(const ast::NamedValueExpression& expr) {
-		referenced_symbols.push_back(&expr.symbol);
-		visitDefault(expr);
-	}
-};
-
-std::shared_ptr<prunefl::SourceNode>
-prunefl::Driver::process_module_dependencies_recursive(
-	std::unordered_map<std::filesystem::path, prunefl::Driver::NodeState>
-		&cache,
-	const ast::InstanceSymbol *current_instance
-) {
-	// Get filepath and node pointer
-	auto [loc, path] = get_definition_syntax_location(*current_instance);
-	auto current_node = source_nodes[path];
-
-	// Recursion: Check if result if cached, or if a cycle happened
-	auto cache_entry_it = cache.find(path);
-	auto cache_entry = cache_entry_it->second;
-	if (cache_entry == NodeState::visited) {
-		return current_node;
-	}
-	if (cache_entry == NodeState::visiting) {
-		return nullptr; // cycle
-	}
-	cache_entry_it->second = NodeState::visiting;
-
-	// Collect dependencies
-	DependencyCollector dc;
-
-	std::set<std::string_view> resolved_macros_so_far;
-	auto &definition = current_instance->getDefinition();
-	auto implementation_syntax = definition.getSyntax();
-	auto &implementation_body = current_instance->body;
-	implementation_body.visit(dc);
-	
-	for (auto symbol: dc.referenced_symbols) {
-		// if a symbol is typed, it might be an enum -- this lets us pull in the
-		// enum
-		auto &type = symbol->getType();
-		auto type_syntax = type.getSyntax();
-		if (type_syntax) {	
-			auto dec_loc = type_syntax->getFirstToken().location();
-			auto dec_path = sourceManager.getFullPath(dec_loc.buffer());
-			if (dec_path != path) {
-				current_node->dependencies.insert(dec_path);
-			}
-		}
-		
-		// it could be a parameter itself
-		auto symbol_syntax = symbol->getSyntax();
-		if (symbol_syntax) {
-			auto dec_loc = symbol_syntax->getFirstToken().location();
-			auto dec_path = sourceManager.getFullPath(dec_loc.buffer());
-			if (dec_path != path) {
-				current_node->dependencies.insert(dec_path);
-			}
-		}
-	}
-	for (auto type : dc.types) {
-		auto declaration = type->getDeclaringDefinition();
-		if (declaration) {	
-			auto dec_loc = declaration->getSyntax()->getFirstToken().location();
-			auto dec_path = sourceManager.getFullPath(dec_loc.buffer());
-			if (dec_path != path) {
-				current_node->dependencies.insert(dec_path);
-			}
-		}
-	}
-	for (auto subroutine : dc.subroutines) {
-		auto declaration = subroutine->getDeclaringDefinition();
-		if (declaration) {
-			auto dec_loc = declaration->getSyntax()->getFirstToken().location();
-			auto dec_path = sourceManager.getFullPath(dec_loc.buffer());
-			if (dec_path != path) {
-				current_node->dependencies.insert(dec_path);
-			}
-		}
-		auto &definition = subroutine->getBody();
-		auto def_loc = definition.syntax->getFirstToken().location();
-		auto def_path = sourceManager.getFullPath(def_loc.buffer());
-		if (def_path != path) {
-			current_node->dependencies.insert(def_path);
-		}
-	}
-	 
-	for (auto &member : implementation_body.members()) {
-		if (member.kind == ast::SymbolKind::Instance) {
-			auto &instance_symbol = member.as<ast::InstanceSymbol>();
-			auto [def_loc, def_path] =
-				get_definition_syntax_location(instance_symbol);
-			current_node->dependencies.insert(def_path);
-			auto resolution =
-				process_module_dependencies_recursive(cache, &instance_symbol);
-			if (resolution == nullptr) {
-				return resolution; // propagate detected cycle
-			}
-		} else if (member.kind == ast::SymbolKind::Port) {
-			auto &port_symbol = member.as<ast::PortSymbol>();
-		} else if (member.kind == ast::SymbolKind::Variable) {
-			auto &var_symbol = member.as<ast::VariableSymbol>();
-		}
-	}
-	cache_entry_it->second = NodeState::visited;
-	return current_node;
-}
-
-std::shared_ptr<prunefl::SourceNode> prunefl::Driver::module_resolution() {
-	auto &root = compilation->getRoot();
-	auto instances = root.topInstances;
-	if (instances.size() != 1) {
-		throw std::runtime_error("Less or more than one top module has been "
-								 "found. Cannot prune file list.");
-	}
-	auto instance = instances[0];
-
-	std::unordered_map<std::filesystem::path, prunefl::Driver::NodeState>
-		node_states;
-	for (auto &[name, _] : source_nodes) {
-		node_states[name] = prunefl::Driver::NodeState();
-	}
-
-	auto resolution =
-		process_module_dependencies_recursive(node_states, instance);
-
-	write_debug("_modules_resolved.log");
-
-	if (resolution == nullptr) {
-		throw std::runtime_error("Cycle detected while resolving module "
-								 "hierarchy. Cannot prune file list.");
-	}
-	return resolution;
 }
 
 bool prunefl::Driver::topological_sort_recursive(
 	std::vector<std::filesystem::path> &result,
 	std::unordered_map<std::filesystem::path, prunefl::Driver::NodeState>
 		&node_states,
-	std::shared_ptr<prunefl::SourceNode> target
+	BufferID target
 ) {
-	auto path = target->get_path();
+	auto path = sourceManager.getFullPath(target);
 	auto state = node_states.find(path)->second;
 	if (state == NodeState::visited) {
 		return true; // already visited
@@ -388,27 +96,37 @@ bool prunefl::Driver::topological_sort_recursive(
 		return false; // cycle
 	}
 	node_states[path] = NodeState::visiting;
-	for (auto &dependency : target->dependencies) {
-		if (!topological_sort_recursive(
-				result, node_states, source_nodes[dependency]
-			)) {
+	for (auto dependency : sourceManager.getDependencies(target)) {
+		if (!topological_sort_recursive(result, node_states, dependency)) {
 			return false; // propagate detected cycle
 		}
 	}
-	result.push_back(path);
+	result.push_back(sourceManager.getFullPath(target));
 	node_states[path] = NodeState::visited;
 	return true;
 }
 
 void prunefl::Driver::topological_sort(
-	std::vector<std::filesystem::path> &result,
-	std::shared_ptr<prunefl::SourceNode> top_node
+	std::vector<std::filesystem::path> &result
 ) {
 	result.clear();
 
+	auto &root = compilation->getRoot();
+	auto instances = root.topInstances;
+	if (instances.size() != 1) {
+		throw std::runtime_error("Less or more than one top module has been "
+								 "found. Cannot prune file list.");
+	}
+	auto instance = instances[0];
+	auto top_node = instance->getDefinition().location.buffer();
+
 	std::unordered_map<std::filesystem::path, NodeState> node_states;
-	for (auto &[name, _] : source_nodes) {
-		node_states[name] = NodeState::unvisited;
+	for (auto id : sourceManager.getAllBuffers()) {
+		auto path = sourceManager.getFullPath(id);
+		if (path.empty()) {
+			continue;
+		}
+		node_states[path] = NodeState::unvisited;
 	}
 
 	auto success = topological_sort_recursive(result, node_states, top_node);
@@ -417,78 +135,4 @@ void prunefl::Driver::topological_sort(
 		throw std::runtime_error("Cycle detected during final topological sort "
 								 "of files. Cannot output final file list.");
 	}
-}
-
-struct SourceNodeOrderComparator {
-	bool operator()(
-		const std::shared_ptr<prunefl::SourceNode> &a,
-		const std::shared_ptr<prunefl::SourceNode> &b
-	) const {
-		return a->load_order < b->load_order;
-	}
-};
-
-void prunefl::Driver::implicit_macro_resolution() {
-	// Maps each macro name to the set of source nodes that export it,
-	// ordered by SourceNodeOrderComparator (likely by load_order).
-	std::map<
-		std::string_view,
-		std::set<
-			std::shared_ptr<prunefl::SourceNode>,
-			SourceNodeOrderComparator>>
-		macro_to_exporters;
-
-	// First pass: collect all macro exporters
-	for (const auto &[path, node] : source_nodes) {
-		if (node->load_order == -1) {
-			// Not in file list, skip
-			continue;
-		}
-		for (const auto &macro : node->exported_macro_locations) {
-			macro_to_exporters[macro.first].insert(node);
-		}
-	}
-
-	// Second pass: resolve macros for each source node
-	for (const auto &[path, node] : source_nodes) {
-		if (node->load_order == -1) {
-			// Not in file list, skip
-			continue;
-		}
-
-		// Work with a queue of unresolved macros to process them one by one
-		std::deque<std::string_view> macros_to_resolve;
-
-		for (auto it = node->unresolved_macro_locations.begin();
-			 it != node->unresolved_macro_locations.end();
-			 it++) {
-			macros_to_resolve.push_back(it->first);
-		}
-
-		while (!macros_to_resolve.empty()) {
-			std::string_view macro = macros_to_resolve.front();
-			macros_to_resolve.pop_front();
-
-			const auto &exporters = macro_to_exporters[macro];
-
-			// Try to find a valid exporter with a lower load_order
-			for (auto it = exporters.rbegin(); it != exporters.rend(); ++it) {
-				const auto &exporter_node = *it;
-
-				if (exporter_node->load_order == -1 ||
-					exporter_node->load_order >= node->load_order) {
-					// Either not in file list OR later in file list -
-					// not a valid candidate
-					continue;
-				}
-
-				// Found a valid macro exporter
-				node->unresolved_macro_locations.erase(std::string{macro});
-				node->dependencies.insert(exporter_node->get_path());
-				break;
-			}
-		}
-	}
-
-	write_debug("_macros_resolved.log");
 }

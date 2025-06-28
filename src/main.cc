@@ -23,7 +23,6 @@
 // SOFTWARE.
 
 #include "driver.hh"
-#include "file.hh"
 
 #include <cstdio>
 #include <stack>
@@ -34,12 +33,8 @@ int main(int argc, char *argv[]) {
 	try {
 		driver.parse_cli(argc, argv);
 		driver.prepare();
-		driver.preprocess();
-		driver.implicit_macro_resolution();
-		auto top_node = driver.module_resolution();
-
 		std::vector<std::filesystem::path> result;
-		driver.topological_sort(result, top_node);
+		driver.topological_sort(result);
 		for (auto &file : result) {
 			fmt::println("{}", file.c_str());
 		}

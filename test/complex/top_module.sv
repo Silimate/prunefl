@@ -1,5 +1,5 @@
 
-module top_module(input logic [config_pkg::DATA_WIDTH:0] in, output logic [config_pkg::DATA_WIDTH:0] out);
+module top_module(input logic [`DW_MACRO:0] in, output logic [`DW_MACRO:0] out);
     logic [3:0] a_out, b_out, c_out;
 
     mod_a u1 (.a(in), .y(a_out));
