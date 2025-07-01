@@ -28,6 +28,8 @@
 #include <slang/ast/symbols/InstanceSymbols.h>
 #include <slang/driver/Driver.h>
 
+#include <tsl/ordered_set.h>
+
 namespace prunefl {
 	class Driver : public slang::driver::Driver {
 	public:
@@ -61,19 +63,25 @@ namespace prunefl {
 		 * @exception std::runtime_error if a cycle is detected during the
 		 * topological sort.
 		 */
-		void topological_sort(std::vector<std::filesystem::path> &result);
+		void topological_sort(tsl::ordered_set<std::filesystem::path> &result);
 
 	private:
 		// types
-		enum class NodeState {
+		enum class NodeVisitStatus {
 			unvisited = 0,
-			visiting,
-			visited,
+			in_progress,
+			done,
+		};
+
+		struct NodeState {
+			NodeVisitStatus visited = NodeVisitStatus::unvisited;
+			bool peer_dependencies_enqueued = false;
 		};
 
 		bool topological_sort_recursive(
-			std::vector<std::filesystem::path> &result,
-			std::unordered_map<std::filesystem::path, NodeState> &node_states,
+			tsl::ordered_set<slang::BufferID> &result,
+			std::unordered_map<slang::BufferID, prunefl::Driver::NodeState>
+				&node_states,
 			slang::BufferID target
 		);
 

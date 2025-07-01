@@ -33,11 +33,12 @@ int main(int argc, char *argv[]) {
 	try {
 		driver.parse_cli(argc, argv);
 		driver.prepare();
-		std::vector<std::filesystem::path> result;
+		tsl::ordered_set<std::filesystem::path> result;
 		driver.topological_sort(result);
 		for (auto &file : result) {
 			fmt::println("{}", file.c_str());
 		}
+		std::fflush(nullptr);
 
 	} catch (std::runtime_error &e) {
 		slang::OS::printE(fmt::format("[FATAL] {}\n", e.what()));

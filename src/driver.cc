@@ -82,32 +82,30 @@ void prunefl::Driver::prepare() {
 }
 
 bool prunefl::Driver::topological_sort_recursive(
-	std::vector<std::filesystem::path> &result,
-	std::unordered_map<std::filesystem::path, prunefl::Driver::NodeState>
-		&node_states,
+	tsl::ordered_set<BufferID> &result,
+	std::unordered_map<BufferID, prunefl::Driver::NodeState> &node_states,
 	BufferID target
 ) {
-	auto path = sourceManager.getFullPath(target);
-	auto state = node_states.find(path)->second;
-	if (state == NodeState::visited) {
+	auto state = node_states.find(target)->second;
+	if (state.visited == NodeVisitStatus::done) {
 		return true; // already visited
 	}
-	if (state == NodeState::visiting) {
+	if (state.visited == NodeVisitStatus::in_progress) {
 		return false; // cycle
 	}
-	node_states[path] = NodeState::visiting;
+	node_states[target].visited = NodeVisitStatus::in_progress;
 	for (auto dependency : sourceManager.getDependencies(target)) {
 		if (!topological_sort_recursive(result, node_states, dependency)) {
 			return false; // propagate detected cycle
 		}
 	}
-	result.push_back(sourceManager.getFullPath(target));
-	node_states[path] = NodeState::visited;
+	result.insert(target);
+	node_states[target].visited = NodeVisitStatus::done;
 	return true;
 }
 
 void prunefl::Driver::topological_sort(
-	std::vector<std::filesystem::path> &result
+	tsl::ordered_set<std::filesystem::path> &result
 ) {
 	result.clear();
 
@@ -119,20 +117,48 @@ void prunefl::Driver::topological_sort(
 	}
 	auto instance = instances[0];
 	auto top_node = instance->getDefinition().location.buffer();
+	std::deque<BufferID> q;
+	q.push_back(top_node);
 
-	std::unordered_map<std::filesystem::path, NodeState> node_states;
+	tsl::ordered_set<BufferID> id_result;
+	std::unordered_map<BufferID, NodeState> node_states;
 	for (auto id : sourceManager.getAllBuffers()) {
 		auto path = sourceManager.getFullPath(id);
 		if (path.empty()) {
 			continue;
 		}
-		node_states[path] = NodeState::unvisited;
+		node_states[id] = {};
+	}
+	auto peer_dependency_enqueuing_idx = 0;
+	while (!q.empty()) {
+		auto current_node = q.front();
+		q.pop_front();
+		if (node_states[current_node].peer_dependencies_enqueued) {
+			continue;
+		}
+		auto success =
+			topological_sort_recursive(id_result, node_states, current_node);
+		if (!success) {
+			// realistically this shouldn't happen if we got to this point
+			throw std::runtime_error(
+				"Cycle detected during final topological sort "
+				"of files. Cannot output final file list."
+			);
+		}
+		while (id_result.nth(peer_dependency_enqueuing_idx) != id_result.end()
+		) {
+			auto target = *id_result.nth(peer_dependency_enqueuing_idx);
+			assert(node_states[target].visited == NodeVisitStatus::done);
+			auto peer_deps = sourceManager.getPeerDependencies(target);
+			for (auto peer_id : peer_deps) {
+				q.push_back(peer_id);
+			}
+			peer_dependency_enqueuing_idx++;
+		}
+		node_states[current_node].peer_dependencies_enqueued = true;
 	}
 
-	auto success = topological_sort_recursive(result, node_states, top_node);
-	if (!success) {
-		// realistically this shouldn't happen if we got to this point
-		throw std::runtime_error("Cycle detected during final topological sort "
-								 "of files. Cannot output final file list.");
+	for (auto id : id_result) {
+		result.insert(sourceManager.getFullPath(id));
 	}
 }

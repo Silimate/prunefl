@@ -8,6 +8,7 @@
   python3,
   fmt_11,
   mimalloc,
+  boost,
 }:
 llvmPackages_18.stdenv.mkDerivation {
   pname = "prunefl";
@@ -27,18 +28,19 @@ llvmPackages_18.stdenv.mkDerivation {
     perl
   ];
   
+  buildInputs = [
+    python3
+    fmt_11
+    mimalloc
+    boost
+  ];
+  
   installPhase = ''
     runHook preInstall
     mkdir -p $out/bin
     cp prunefl $out/bin/prunefl
     runHook postInstall
   '';
-  
-  buildInputs = [
-    python3
-    fmt_11
-    mimalloc
-  ];
   
   meta = {
     description = "SystemVerilog File Pruning Utility";

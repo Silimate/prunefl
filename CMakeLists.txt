@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.30)
 project(prunefl)
 
 # Submodules and Third Party
+add_subdirectory(third_party/ordered-map)
+set(SLANG_INCLUDE_TOOLS ON)
 add_subdirectory(third_party/slang)
 set_target_properties(
   slang_slang
@@ -25,4 +27,7 @@ add_executable(prunefl src/main.cc src/driver.cc "${CMAKE_CURRENT_BINARY_DIR}/ve
 set_property(TARGET prunefl PROPERTY CXX_STANDARD 20)
 target_include_directories(prunefl PUBLIC include)
 target_include_directories(prunefl PRIVATE third_party/access_private_20/include)
-target_link_libraries(prunefl PUBLIC slang::slang)
+target_link_libraries(prunefl PUBLIC slang::slang tsl::ordered_map)
+
+enable_testing()
+add_subdirectory(test)
