@@ -83,10 +83,14 @@ void prunefl::Driver::parse_cli(int argc, char *argv[]) {
 
 void prunefl::Driver::prepare() {
 	// Parse sources and report compilation issues to stderr
-	parseAllSources();
+	if (!parseAllSources()) {
+		throw std::runtime_error("Could not parse sources!");
+	}
 	compilation = createCompilation();
 	reportCompilation(*compilation, true);
-	reportDiagnostics(true);
+	if (!reportDiagnostics(true)) {
+		throw std::runtime_error("Could not report diagnostics!");
+	}
 
 	// Recreate file list (with fully resolved paths)
 	auto buffers_tmp = std::move(sourceLoader.loadSources()); // move buffers

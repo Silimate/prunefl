@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include <queue>
+
 #include "file.hh"
 
 #include <slang/ast/symbols/CompilationUnitSymbols.h>
