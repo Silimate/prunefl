@@ -6,6 +6,11 @@ usage: python3 ./file2utf8z.py <variable name>
 """
 import sys
 
+if len(sys.argv) != 2:
+  print(f"Usage: {sys.argv[0]} <variable name>", file=sys.stderr)
+  print(f"Pass the input file as stdin, and the generated C file will be dumped to stdout.", file=sys.stderr)
+  exit(-1)
+
 raw = sys.stdin.read().strip().encode("utf8")
 
 print(f"extern const char {sys.argv[1]}[] = {{", end="")
