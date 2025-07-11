@@ -1,7 +1,12 @@
 SOURCES = $(wildcard src/*.cc)
 HEADERS = $(wildcard include/*.hh)
 
-all: build/prunefl
+all: debug 
+debug: CMAKE_FLAGS = -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-O0
+debug: build/prunefl
+
+release: CMAKE_FLAGS = -DCMAKE_BUILD_TYPE=Release
+release: build/prunefl
 
 build/prunefl: build/compile_commands.json $(SOURCES) $(HEADERS)
 	mkdir -p $(@D)
@@ -9,7 +14,7 @@ build/prunefl: build/compile_commands.json $(SOURCES) $(HEADERS)
 
 build/compile_commands.json: CMakeLists.txt
 	mkdir -p $(@D)
-	cd $(@D) && cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Debug ..
+	cd $(@D) && cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON $(CMAKE_FLAGS) ..
 
 .PHONY: lint
 lint: build/compile_commands.json
