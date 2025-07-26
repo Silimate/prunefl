@@ -33,8 +33,7 @@ int main(int argc, char *argv[]) {
 	try {
 		driver.parse_cli(argc, argv);
 		driver.prepare();
-		tsl::ordered_set<std::filesystem::path> result;
-		driver.topological_sort(result);
+		auto result = driver.topological_sort();
 		for (auto &file : result) {
 			fmt::println("{}", file.c_str());
 		}

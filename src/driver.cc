@@ -34,7 +34,28 @@
 
 #include <fmt/ostream.h>
 
+#include <nlohmann/json.hpp>
+#include <picosha2.h>
+
+#include <fstream>
+#include <set>
+
 using namespace slang;
+
+static std::optional<std::string> hash_file(std::filesystem::path path) {
+	std::ifstream f(path, std::ios::binary);
+	if (!f) {
+		return std::nullopt;
+	}
+	std::string current_hash;
+	picosha2::hash256_hex_string(
+		std::istreambuf_iterator<char>(f),
+		std::istreambuf_iterator<char>(),
+		current_hash
+	);
+	f.close();
+	return current_hash;
+}
 
 extern const char VERSION[];
 
@@ -43,6 +64,12 @@ prunefl::Driver::Driver() : driver::Driver::Driver() {
 	cmdLine.add("-h,--help", show_help, "Display available options");
 	cmdLine.add(
 		"--version", show_version, "Display version information and exit"
+	);
+	cmdLine.add(
+		"--cache-to",
+		cache_file,
+		"Optional- if specified, the file in question is used to store caching "
+		"information. The directory it lies in must exist."
 	);
 }
 
@@ -74,6 +101,70 @@ void prunefl::Driver::parse_cli(int argc, char *argv[]) {
 	}
 }
 void prunefl::Driver::prepare() {
+	auto loaded_files = sourceLoader.loadSources();
+	for (auto &buffer : loaded_files) {
+		auto full_path = sourceManager.getFullPath(buffer.id);
+		input_file_list.insert(full_path);
+	}
+	if (cache_file.has_value()) {
+		std::filesystem::path cache_path(*cache_file);
+		std::ifstream cache_reader;
+		cache_reader.open(cache_path);
+		// If we fail to open the file, that's a cache miss:
+		if (!cache_reader) {
+			fmt::println(stderr, "Cache file not found. Pruning…");
+		} else {
+			nlohmann::json j;
+			cache_reader >> j;
+			cache_reader.close();
+
+			std::set<std::filesystem::path> cache_loaded_files;
+			auto cache_input_file_list = j["input_file_list"];
+			for (auto it = cache_input_file_list.begin();
+				 it != cache_input_file_list.end();
+				 it++) {
+				cache_loaded_files.insert(std::filesystem::path(*it));
+			}
+
+			// If the file list does not match, that is also a cache miss:
+			if (input_file_list != cache_loaded_files) {
+				fmt::println(
+					stderr,
+					"File list is different between current invocation and "
+					"cache. Pruning new file list…"
+				);
+			} else {
+				// Time to compare the hashes.
+				bool cache_hit = true;
+				auto file_hashes = j["file_hashes"];
+				for (auto it = file_hashes.begin(); it != file_hashes.end();
+					 it++) {
+					auto path = std::filesystem::path(it.key());
+					auto au_hash = it.value().get<std::string>();
+					auto current_hash = hash_file(path);
+					if (current_hash != au_hash) {
+						fmt::println(
+							stderr,
+							"File {} changed, re-running prune…",
+							path.c_str()
+						);
+						cache_hit = false;
+						break;
+					}
+					result.insert(path);
+				}
+				if (cache_hit) {
+					fmt::println(
+						stderr,
+						"Input files have not changed, loading from cache…"
+					);
+					return;
+				} else {
+					result.clear();
+				}
+			}
+		}
+	}
 	// Parse sources and report compilation issues to stderr
 	if (!parseAllSources()) {
 		throw std::runtime_error("Could not parse sources!");
@@ -108,10 +199,11 @@ bool prunefl::Driver::topological_sort_recursive(
 	return true;
 }
 
-void prunefl::Driver::topological_sort(
-	tsl::ordered_set<std::filesystem::path> &result
-) {
-	result.clear();
+const tsl::ordered_set<std::filesystem::path> &
+prunefl::Driver::topological_sort() {
+	if (!result.empty()) {
+		return result;
+	}
 
 	auto &root = compilation->getRoot();
 	auto instances = root.topInstances;
@@ -165,4 +257,28 @@ void prunefl::Driver::topological_sort(
 	for (auto id : id_result) {
 		result.insert(sourceManager.getFullPath(id));
 	}
+
+	if (cache_file.has_value()) {
+		std::filesystem::path cache_path{*cache_file};
+		nlohmann::json file_hashes;
+		for (auto &path : result) {
+			auto current_hash = *hash_file(path);
+			file_hashes[path.c_str()] = current_hash;
+		}
+
+		nlohmann::json meta;
+		meta["prunefl_cache_version"] = 1;
+
+		nlohmann::json prunefl_cache_info{
+			{"meta", meta},
+			{"file_hashes", file_hashes},
+			{"input_file_list", input_file_list}
+		};
+
+		std::ofstream writer(cache_path);
+		writer << prunefl_cache_info;
+		writer.close();
+	}
+
+	return result;
 }

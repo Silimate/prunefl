@@ -57,13 +57,13 @@ namespace prunefl {
 		 * Produces the subset of files required to successfully compile the
 		 * requested top module in reverse-topological order.
 		 *
-		 * @param result A reference to a container inside which the result is
+		 * @returns A reference to a container inside which the result is
 		 *  emplaced.
 		 *
 		 * @exception std::runtime_error if a cycle is detected during the
 		 * topological sort.
 		 */
-		void topological_sort(tsl::ordered_set<std::filesystem::path> &result);
+		const tsl::ordered_set<std::filesystem::path> &topological_sort();
 
 	private:
 		// types
@@ -87,9 +87,12 @@ namespace prunefl {
 
 		// members
 		std::unique_ptr<slang::ast::Compilation> compilation;
+		std::set<std::filesystem::path> input_file_list;
+		tsl::ordered_set<std::filesystem::path> result;
 
 		// cli
 		std::optional<bool> show_help;
 		std::optional<bool> show_version;
+		std::optional<std::string> cache_file;
 	};
 } // namespace prunefl

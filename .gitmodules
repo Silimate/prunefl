@@ -7,3 +7,9 @@
 [submodule "third_party/ordered-map"]
 	path = third_party/ordered-map
 	url = https://github.com/Tessil/ordered-map
+[submodule "third_party/json"]
+	path = third_party/json
+	url = https://github.com/nlohmann/json
+[submodule "third_party/PicoSHA2"]
+	path = third_party/PicoSHA2
+	url = https://github.com/okdshin/PicoSHA2
