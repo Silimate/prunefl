@@ -71,10 +71,10 @@ namespace prunefl {
 		/**
 		 * @brief To be optionally run after prepare() (at any point).
 		 *
-		 * @returns A reference to a container inside which include search paths
+		 * @returns A container inside which include search paths
 		 * 	are emplaced.
 		 */
-		const tsl::ordered_set<std::filesystem::path> &
+		const tsl::ordered_set<std::filesystem::path>
 		get_include_directories() const;
 
 		/**

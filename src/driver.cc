@@ -74,7 +74,7 @@ prunefl::Driver::Driver() : driver::Driver::Driver() {
 	cmdLine.add(
 		"--include-dirs",
 		include_dirs,
-		"Also output absolute paths to include search paths prefixed with "
+		"Instead of explicitly listing included files,"
 		"'+incdir+'. Needed for some less-flexible parsers."
 	);
 }
@@ -159,10 +159,11 @@ bool prunefl::Driver::load_cache() {
 		fmt::println(
 			stderr, "Input files have not changed, loading from cache…"
 		);
-		auto include_dirs = j["include_dirs"];
-		for (auto it = include_dirs.begin(); it != include_dirs.end(); it++) {
-			auto dir = std::filesystem::path(it.value().get<std::string>());
-			result_includes.insert(dir);
+		auto included_files = j["included_files"];
+		for (auto it = included_files.begin(); it != included_files.end();
+			 it++) {
+			auto file = std::filesystem::path(it.value().get<std::string>());
+			result_includes.insert(file);
 		}
 		return true;
 	}
@@ -197,7 +198,7 @@ void prunefl::Driver::prepare() {
 
 	auto included_files = getDepfiles(true);
 	for (auto &file : included_files) {
-		result_includes.insert(file.parent_path());
+		result_includes.insert(file);
 	}
 }
 
@@ -244,7 +245,7 @@ void prunefl::Driver::try_write_cache() const {
 		{"meta", meta},
 		{"file_hashes", file_hashes},
 		{"input_file_list", input_file_list},
-		{"include_dirs", result_includes}
+		{"included_files", result_includes}
 	};
 
 	std::ofstream writer(cache_path);
@@ -295,12 +296,23 @@ prunefl::Driver::get_sorted_set() {
 	}
 
 	for (auto id : id_result) {
-		result.insert(sourceManager.getFullPath(id));
+		auto file = sourceManager.getFullPath(id);
+		if (print_include_dirs() && result_includes.count(file) &&
+			!input_file_list.count(file)) {
+			// Do not add included files to list unless they are explicitly
+			// listed as an input.
+			continue;
+		}
+		result.insert(file);
 	}
 	return result;
 }
 
-const tsl::ordered_set<std::filesystem::path> &
+const tsl::ordered_set<std::filesystem::path>
 prunefl::Driver::get_include_directories() const {
-	return result_includes;
+	tsl::ordered_set<std::filesystem::path> include_dirs;
+	for (auto &file : result_includes) {
+		include_dirs.insert(file.parent_path());
+	}
+	return include_dirs;
 }
