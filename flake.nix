@@ -1,5 +1,6 @@
 {
   inputs = {
+    self.submodules = true;
     nix-eda.url = "github:fossi-foundation/nix-eda";
   };
 

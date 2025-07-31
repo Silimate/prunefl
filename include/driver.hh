@@ -45,25 +45,47 @@ namespace prunefl {
 		 * for the preprocessor passes. It also runs a preliminary compilation
 		 * to verify that the pruned file list compiles properly.
 		 *
-		 * Processing is not terminated if the file list is invalid, but this
-		 * may affect the final results if one or more files being pruned are
-		 * part of the compilation hierarchy.
+		 * Processing is terminated if the file list is invalid.
+		 *
+		 * If a valid cache file is found, the data is re-populated and
+		 * compilation is skipped to save time.
+		 *
+		 * @exception std::runtime_error if any fatal compilation issues occur.
 		 */
 		void prepare();
 
 		/**
-		 * @brief To be run last.
+		 * @brief Must be run after prepare().
 		 *
 		 * Produces the subset of files required to successfully compile the
 		 * requested top module in reverse-topological order.
 		 *
-		 * @param result A reference to a container inside which the result is
+		 * @returns A reference to a container inside which the result is
 		 *  emplaced.
 		 *
 		 * @exception std::runtime_error if a cycle is detected during the
 		 * topological sort.
 		 */
-		void topological_sort(tsl::ordered_set<std::filesystem::path> &result);
+		const tsl::ordered_set<std::filesystem::path> &get_sorted_set();
+
+		/**
+		 * @brief To be optionally run after prepare() (at any point).
+		 *
+		 * @returns A container inside which include search paths
+		 * 	are emplaced.
+		 */
+		const tsl::ordered_set<std::filesystem::path>
+		get_include_directories() const;
+
+		/**
+		 * @returns Whether the user specified --include-dirs or not.
+		 */
+		bool print_include_dirs() const { return include_dirs.has_value(); }
+
+		/**
+		 * @brief Writes the final results to the file specified by --cache-to.
+		 */
+		void try_write_cache() const;
 
 	private:
 		// types
@@ -78,7 +100,9 @@ namespace prunefl {
 			bool peer_dependencies_enqueued = false;
 		};
 
-		bool topological_sort_recursive(
+		// methods
+		bool load_cache();
+		void topological_sort_recursive(
 			tsl::ordered_set<slang::BufferID> &result,
 			std::unordered_map<slang::BufferID, prunefl::Driver::NodeState>
 				&node_states,
@@ -87,9 +111,15 @@ namespace prunefl {
 
 		// members
 		std::unique_ptr<slang::ast::Compilation> compilation;
+		std::set<std::filesystem::path> input_file_list;
+		tsl::ordered_set<std::filesystem::path> result_includes;
+		tsl::ordered_set<std::filesystem::path> result;
+		const slang::ast::RootSymbol *root = nullptr;
 
 		// cli
 		std::optional<bool> show_help;
 		std::optional<bool> show_version;
+		std::optional<bool> include_dirs;
+		std::optional<std::string> cache_file;
 	};
 } // namespace prunefl

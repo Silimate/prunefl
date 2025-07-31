@@ -22,7 +22,7 @@ make -j$(nproc)
 ## Nix
 
 ```
-nix build -L '.?submodules=1#prunefl'
+nix build -L
 ```
 
 The binary will be in `./result/bin/prunefl`.
