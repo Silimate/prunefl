@@ -28,6 +28,6 @@ if __name__ == "__main__":
     for result_file in f:
       if result_file.strip() == "":
         continue
-      final_set.add(result_file)
+      final_set.add(Path(result_file))
 
   assert len(unused_set.union(final_set)) == len(final_set) + len(unused_set), "trimming failed"
