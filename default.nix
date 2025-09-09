@@ -1,11 +1,12 @@
 {
-  flake,
+  src ? ./.,
   lib,
-  llvmPackages_18,
-  cmake,
-  xxd,
-  perl,
-  python3,
+  llvmPackages_18, # new c++
+  cmake, # build system
+  ninja, # build utility
+  python3, # glue
+  perl, # sed and awk are tools used by masochists
+  # runtime deps
   fmt_11,
   mimalloc,
   boost,
@@ -14,7 +15,7 @@ llvmPackages_18.stdenv.mkDerivation {
   pname = "prunefl";
   version = lib.strings.trim (builtins.readFile ./VERSION);
   
-  src = flake;
+  inherit src;
   
   # Substitute minimum versions for those available in nixpkgs - likely overconstrained by slang itself
   postPatch = ''
@@ -25,11 +26,12 @@ llvmPackages_18.stdenv.mkDerivation {
   nativeBuildInputs = [
     cmake
     llvmPackages_18.clang-tools
+    python3
     perl
+    ninja
   ];
   
   buildInputs = [
-    python3
     fmt_11
     mimalloc
     boost
