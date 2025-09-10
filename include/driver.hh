@@ -71,16 +71,16 @@ namespace prunefl {
 		/**
 		 * @brief To be optionally run after prepare() (at any point).
 		 *
-		 * @returns A container inside which include search paths
-		 * 	are emplaced.
+		 * @returns A set of flags related to search paths and macro definitions
+		 *  to be included.
 		 */
-		const tsl::ordered_set<std::filesystem::path>
-		get_include_directories() const;
+		const tsl::ordered_set<std::string>
+		get_output_flags() const;
 
 		/**
-		 * @returns Whether the user specified --include-dirs or not.
+		 * @returns Whether the user specified --output-flags or not.
 		 */
-		bool print_include_dirs() const { return include_dirs.has_value(); }
+		bool print_flags() const { return output_flags.has_value(); }
 
 		/**
 		 * @brief Writes the final results to the file specified by --cache-to.
@@ -119,7 +119,7 @@ namespace prunefl {
 		// cli
 		std::optional<bool> show_help;
 		std::optional<bool> show_version;
-		std::optional<bool> include_dirs;
+		std::optional<bool> output_flags;
 		std::optional<std::string> cache_file;
 	};
 } // namespace prunefl

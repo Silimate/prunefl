@@ -29,10 +29,11 @@ The binary will be in `./result/bin/prunefl`.
 
 # Usage
 
-Make sure to use exactly -C or implicit macro resolution may go haywire.
+Make sure to use exactly --single-unit -f for implicit macro resolution while
+still properly propagating commandline defines.
 
 ```console
-$ ./build/prunefl -C test/mvp_model/mvp_model.f --top module_b --debug-out-pfx ./debug/tree
+$ ./build/prunefl --single-unit -f test/mvp_model/mvp_model.f --top module_b --debug-out-pfx ./debug/tree
 ```
 
 The files will be printed in topological order.

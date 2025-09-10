@@ -37,10 +37,10 @@ int main(int argc, char *argv[]) {
 		for (auto &file : result) {
 			fmt::println("{}", file.c_str());
 		}
-		if (driver.print_include_dirs()) {
-			auto include_result = driver.get_include_directories();
-			for (auto &dir : include_result) {
-				fmt::println("+incdir+{}", dir.c_str());
+		if (driver.print_flags()) {
+			auto flags = driver.get_output_flags();
+			for (auto &flag : flags) {
+				fmt::println("{}", flag);
 			}
 		}
 		std::fflush(nullptr);
