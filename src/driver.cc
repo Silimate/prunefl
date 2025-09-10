@@ -34,6 +34,7 @@
 
 #include <fmt/ostream.h>
 
+#include <access_private.hpp>
 #include <nlohmann/json.hpp>
 #include <picosha2.h>
 
@@ -73,9 +74,14 @@ prunefl::Driver::Driver() : driver::Driver::Driver() {
 	);
 	cmdLine.add(
 		"--include-dirs",
-		include_dirs,
-		"Instead of explicitly listing included files,"
-		"'+incdir+'. Needed for some less-flexible parsers."
+		output_flags,
+		"Backcompat alias for --output-flags"
+	);
+	cmdLine.add(
+		"--output-flags",
+		output_flags,
+		"Instead of explicitly listing included files and modules,"
+		"use '+incdir+/-y/-Y/+define+'. Needed for some less-flexible parsers."
 	);
 }
 
@@ -297,10 +303,13 @@ prunefl::Driver::get_sorted_set() {
 
 	for (auto id : id_result) {
 		auto file = sourceManager.getFullPath(id);
-		if (print_include_dirs() && result_includes.count(file) &&
+		if (print_flags() && result_includes.count(file) &&
 			!input_file_list.count(file)) {
 			// Do not add included files to list unless they are explicitly
 			// listed as an input.
+			continue;
+		}
+		if (file.string().starts_with("<unnamed_buffer")) {
 			continue;
 		}
 		result.insert(file);
@@ -308,11 +317,35 @@ prunefl::Driver::get_sorted_set() {
 	return result;
 }
 
-const tsl::ordered_set<std::filesystem::path>
-prunefl::Driver::get_include_directories() const {
-	tsl::ordered_set<std::filesystem::path> include_dirs;
-	for (auto &file : result_includes) {
-		include_dirs.insert(file.parent_path());
+template struct access_private::access<&slang::driver::SourceLoader::searchDirectories>;
+template struct access_private::access<&slang::driver::SourceLoader::searchExtensions>;
+
+const tsl::ordered_set<std::string>
+prunefl::Driver::get_output_flags() const {
+	tsl::ordered_set<std::string> output_flags;
+	
+	// defines
+	for (auto &define: options.defines) {
+		output_flags.insert(std::string("+define+") + define);
 	}
-	return include_dirs;
+	
+	// include search directories
+	for (auto &file : result_includes) {
+		output_flags.insert(std::string("+incdir+") + file.parent_path().string());
+	}
+
+	// module search directories
+	auto &searchDirectories = access_private::accessor<"searchDirectories">(sourceLoader);
+	for (auto &dir: searchDirectories) {
+		output_flags.insert(std::string("-y ") + dir.string());
+	}
+	
+	// module search extensions
+	auto &searchExtensions = access_private::accessor<"searchExtensions">(sourceLoader);
+	for (auto &ext: searchExtensions) {
+		output_flags.insert(std::string("-Y ") + ext.string());
+	}
+	
+	
+	return output_flags;
 }
