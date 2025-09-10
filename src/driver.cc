@@ -81,7 +81,7 @@ prunefl::Driver::Driver() : driver::Driver::Driver() {
 		"--output-flags",
 		output_flags,
 		"Instead of explicitly listing included files and modules,"
-		"use '+incdir+/-y/+libext+/+define+'. Needed for some less-flexible parsers."
+		"use '+incdir+/-y/-Y/+define+'. Needed for some less-flexible parsers."
 	);
 }
 
