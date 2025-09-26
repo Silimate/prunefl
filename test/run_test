@@ -21,7 +21,7 @@ assert len(unused & result) == 0
 HERE
 }
 
-$prunefl --single-unit -f list.f --top top_module \
+$prunefl -f list.f --top top_module \
   --output-flags-to $bindir/$test.flags.f \
   --output $bindir/$test.f
 

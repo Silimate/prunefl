@@ -74,7 +74,7 @@ namespace prunefl {
 		 * Writes output flags to a file if output_flags_to is set.
 		 */
 		void write_output_flags() const;
-		
+
 		/**
 		 * @brief Writes the file list. Must be run after prepare().
 		 */
@@ -112,8 +112,9 @@ namespace prunefl {
 		// members
 		std::unique_ptr<slang::ast::Compilation> compilation;
 		std::set<std::filesystem::path> input_file_list;
-		tsl::ordered_set<std::filesystem::path> result_includes;
 		tsl::ordered_set<std::filesystem::path> result;
+		tsl::ordered_set<std::filesystem::path> result_includes;
+		tsl::ordered_set<std::filesystem::path> result_library_files;
 		const slang::ast::RootSymbol *root = nullptr;
 
 		// cli
@@ -122,5 +123,6 @@ namespace prunefl {
 		std::optional<std::string> cache_file;
 		std::optional<std::string> output;
 		std::optional<std::string> output_flags_to;
+		std::vector<std::string> positionalArguments;
 	};
 } // namespace prunefl

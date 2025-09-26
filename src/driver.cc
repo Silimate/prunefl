@@ -41,8 +41,9 @@
 #include <set>
 
 using namespace slang;
+namespace fs = std::filesystem;
 
-static std::optional<std::string> hash_file(std::filesystem::path path) {
+static std::optional<std::string> hash_file(fs::path path) {
 	std::ifstream f(path, std::ios::binary);
 	if (!f) {
 		return std::nullopt;
@@ -78,13 +79,11 @@ prunefl::Driver::Driver() : driver::Driver::Driver() {
 		"output '+incdir+/-y/-Y/+define+' to this file. "
 		"--output must be specified, in which case it will be passed "
 	);
-	cmdLine.add(
-		"--output",
-		output,
-		"The file to output file paths to"
-	);
+	cmdLine.add("--output", output, "The file to output file paths to");
+
 	options.compat = slang::driver::CompatMode::All;
 	options.timeScale = "1ns/1ns";
+	options.singleUnit = true;
 }
 
 void prunefl::Driver::parse_cli(int argc, char *argv[]) {
@@ -109,7 +108,9 @@ void prunefl::Driver::parse_cli(int argc, char *argv[]) {
 	}
 	if (!output.has_value()) {
 		if (output_flags_to.has_value()) {
-			throw std::runtime_error("--output must be specified if --output-flags-to is specified.");
+			throw std::runtime_error(
+				"--output must be specified if --output-flags-to is specified."
+			);
 		}
 	}
 
@@ -121,7 +122,7 @@ void prunefl::Driver::parse_cli(int argc, char *argv[]) {
 }
 
 bool prunefl::Driver::load_cache() {
-	std::filesystem::path cache_path(*cache_file);
+	fs::path cache_path(*cache_file);
 	std::ifstream cache_reader;
 	cache_reader.open(cache_path);
 	// If we fail to open the file, that's a cache miss:
@@ -143,12 +144,12 @@ bool prunefl::Driver::load_cache() {
 		return false;
 	}
 
-	std::set<std::filesystem::path> cache_loaded_files;
+	std::set<fs::path> cache_loaded_files;
 	auto cache_input_file_list = j["input_file_list"];
 	for (auto it = cache_input_file_list.begin();
 		 it != cache_input_file_list.end();
 		 it++) {
-		cache_loaded_files.insert(std::filesystem::path(*it));
+		cache_loaded_files.insert(fs::path(*it));
 	}
 
 	// If the file list does not match, that is also a cache miss:
@@ -165,7 +166,7 @@ bool prunefl::Driver::load_cache() {
 	bool cache_hit = true;
 	auto file_hashes = j["file_hashes"];
 	for (auto it = file_hashes.begin(); it != file_hashes.end(); it++) {
-		auto path = std::filesystem::path(it.key());
+		auto path = fs::path(it.key());
 		auto au_hash = it.value().get<std::string>();
 		auto current_hash = hash_file(path);
 		if (current_hash != au_hash) {
@@ -175,17 +176,19 @@ bool prunefl::Driver::load_cache() {
 			cache_hit = false;
 			break;
 		}
-		result.insert(path);
 	}
 	if (cache_hit) {
 		fmt::println(
 			stderr, "Input files have not changed, loading from cache…"
 		);
-		auto included_files = j["included_files"];
-		for (auto it = included_files.begin(); it != included_files.end();
-			 it++) {
-			auto file = std::filesystem::path(it.value().get<std::string>());
-			result_includes.insert(file);
+		for (const auto &file: j["result"]) {
+			result.insert(fs::path(file.get<std::string>()));
+		}
+		for (const auto &file: j["result_includes"]) {
+			result_includes.insert(fs::path(file.get<std::string>()));
+		}
+		for (const auto &file: j["result_library_files"]) {
+			result_library_files.insert(fs::path(file.get<std::string>()));
 		}
 		return true;
 	}
@@ -193,8 +196,8 @@ bool prunefl::Driver::load_cache() {
 	return false;
 }
 
-std::vector<std::filesystem::path> prunefl::Driver::getIncludes() const {
-	flat_hash_set<std::filesystem::path> includeSet;
+std::vector<fs::path> prunefl::Driver::getIncludes() const {
+	flat_hash_set<fs::path> includeSet;
 
 	for (auto &tree : syntaxTrees) {
 		for (auto &inc : tree->getIncludeDirectives()) {
@@ -205,25 +208,30 @@ std::vector<std::filesystem::path> prunefl::Driver::getIncludes() const {
 		}
 	}
 
-	return std::vector<std::filesystem::path>(
-		includeSet.begin(), includeSet.end()
-	);
+	return std::vector<fs::path>(includeSet.begin(), includeSet.end());
 }
 
 bool prunefl::Driver::gather_input_files() {
 	auto loaded_files = sourceLoader.loadSources();
+
 	// source files
 	for (auto &buffer : loaded_files) {
 		auto full_path = sourceManager.getFullPath(buffer.id);
 		input_file_list.insert(full_path);
 	}
+
 	// library files
 	for (auto &[library, path] : sourceLoader.getLibraryFiles()) {
 		input_file_list.insert(path);
 	}
+
 	// library map files
 	for (auto &path : sourceLoader.getLibraryMapFiles()) {
 		input_file_list.insert(path);
+	}
+
+	for (auto &path : getProcessedCommandFiles()) {
+		input_file_list.insert(fs::absolute(path));
 	}
 
 	return cache_file.has_value() && load_cache();
@@ -277,28 +285,38 @@ void prunefl::Driver::topological_sort_recursive(
 	node_states[target].visited = NodeVisitStatus::done;
 }
 
-void prunefl::Driver::try_write_cache() const {
-	if (!cache_file.has_value()) {
-		return;
-	}
-	std::filesystem::path cache_path{*cache_file};
-	nlohmann::json file_hashes;
-	for (auto &path : result) {
+template <typename T>
+void add_file_hashes(nlohmann::json &object, const T &files) {
+	for (auto &path : files) {
 		auto current_hash = hash_file(path);
 		// file must have been processed, unless the user is deleting
 		// things this should not be encountered
 		assert(current_hash.has_value());
-		file_hashes[path.string()] = *current_hash;
+		object[path.string()] = *current_hash;
 	}
+}
 
+void prunefl::Driver::try_write_cache() const {
+	if (!cache_file.has_value()) {
+		return;
+	}
+	fs::path cache_path{*cache_file};
+	nlohmann::json file_hashes;
+	
+	add_file_hashes(file_hashes, result);
+	add_file_hashes(file_hashes, result_library_files);
+	add_file_hashes(file_hashes, result_includes);
+	add_file_hashes(file_hashes, input_file_list);
 	nlohmann::json meta;
-	meta["prunefl_cache_version"] = 1;
+	meta["prunefl_cache_version"] = 2;
 
 	nlohmann::json prunefl_cache_info{
 		{"meta", meta},
-		{"file_hashes", file_hashes},
 		{"input_file_list", input_file_list},
-		{"included_files", result_includes}
+		{"file_hashes", file_hashes},
+		{"result", result},
+		{"result_includes", result_includes},
+		{"result_library_files", result_library_files},
 	};
 
 	std::ofstream writer(cache_path);
@@ -306,8 +324,7 @@ void prunefl::Driver::try_write_cache() const {
 	writer.close();
 }
 
-const tsl::ordered_set<std::filesystem::path> &
-prunefl::Driver::get_sorted_set() {
+const tsl::ordered_set<fs::path> &prunefl::Driver::get_sorted_set() {
 	if (!result.empty()) {
 		return result;
 	}
@@ -348,23 +365,20 @@ prunefl::Driver::get_sorted_set() {
 		node_states[current_node].peer_dependencies_enqueued = true;
 	}
 
-	tsl::ordered_set<std::filesystem::path> library_files;
 	for (auto &[library, path] : sourceLoader.getLibraryFiles()) {
-		library_files.insert(path);
+		result_library_files.insert(path);
 	}
 
 	for (auto id : id_result) {
 		auto file = sourceManager.getFullPath(id);
-		if (output_flags_to.has_value()) {
-			if (result_includes.count(file) && !input_file_list.count(file)) {
-				// Do not add included files to list unless they are explicitly
-				// listed as an input.
-				continue;
-			}
-			if (library_files.count(file)) {
-				// Do not add library files to list.
-				continue;
-			}
+		if (result_includes.count(file) && !input_file_list.count(file)) {
+			// Do not add included files to list unless they are explicitly
+			// listed as an input.
+			continue;
+		}
+		if (result_library_files.count(file)) {
+			// Do not add library files to list.
+			continue;
 		}
 		if (file.string().starts_with("<unnamed_buffer")) {
 			continue;
@@ -376,15 +390,22 @@ prunefl::Driver::get_sorted_set() {
 
 void prunefl::Driver::write_pruned_file_list() {
 	auto sorted_set = get_sorted_set();
-	
+
 	std::string out_string = "";
-	
-	for (const auto &file: sorted_set) {
+
+	for (const auto &file : sorted_set) {
 		out_string += fmt::format("{}\n", file.c_str());
 	}
-	
-	fmt::println("{}", out_string);
-	
+
+	if (!output_flags_to.has_value()) {
+		for (const auto &file: result_includes) {
+			out_string += fmt::format("{}\n", file.c_str());
+		}
+		for (const auto &file: result_library_files) {
+			out_string += fmt::format("{}\n", file.c_str());
+		}
+	}
+
 	if (output.has_value()) {
 		OS::writeFile(*output, out_string);
 	} else {
@@ -430,7 +451,7 @@ void prunefl::Driver::write_output_flags() const {
 			);
 		}
 	}
-	
+
 	output_flags.insert(fmt::format("-C {}", output->c_str()));
 
 	std::string out_string;

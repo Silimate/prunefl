@@ -29,11 +29,8 @@ The binary will be in `./result/bin/prunefl`.
 
 # Usage
 
-Make sure to use exactly --single-unit -f for implicit macro resolution while
-still properly propagating things like commandline defines.
-
 ```console
-$ ./build/prunefl --single-unit -f test/mvp_model/mvp_model.f --top module_b --output-flags-to flags.f --output pruned.f
+$ ./build/prunefl -f test/mvp_model/mvp_model.f --top module_b --output-flags-to flags.f --output pruned.f
 ```
 
 `pruned.f` will contain the pruned file list, but to propagate defines,

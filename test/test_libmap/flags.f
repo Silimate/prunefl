@@ -1,0 +1,5 @@
+-Y .sv
+-Y .v
+-v mylib=/Volumes/T7/Code/silimate/prunefl/test/test_libmap/lib/mylib1.sv
+-v mylib=/Volumes/T7/Code/silimate/prunefl/test/test_libmap/lib/mylib2.sv
+-C pruned.f
