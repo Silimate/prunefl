@@ -71,16 +71,14 @@ namespace prunefl {
 		/**
 		 * @brief To be optionally run after prepare() (at any point).
 		 *
-		 * @returns A container inside which include search paths
-		 * 	are emplaced.
+		 * Writes output flags to a file if output_flags_to is set.
 		 */
-		const tsl::ordered_set<std::filesystem::path>
-		get_include_directories() const;
+		void write_output_flags() const;
 
 		/**
-		 * @returns Whether the user specified --include-dirs or not.
+		 * @brief Writes the file list. Must be run after prepare().
 		 */
-		bool print_include_dirs() const { return include_dirs.has_value(); }
+		void write_pruned_file_list();
 
 		/**
 		 * @brief Writes the final results to the file specified by --cache-to.
@@ -102,6 +100,8 @@ namespace prunefl {
 
 		// methods
 		bool load_cache();
+		bool gather_input_files();
+		std::vector<std::filesystem::path> getIncludes() const;
 		void topological_sort_recursive(
 			tsl::ordered_set<slang::BufferID> &result,
 			std::unordered_map<slang::BufferID, prunefl::Driver::NodeState>
@@ -112,14 +112,18 @@ namespace prunefl {
 		// members
 		std::unique_ptr<slang::ast::Compilation> compilation;
 		std::set<std::filesystem::path> input_file_list;
-		tsl::ordered_set<std::filesystem::path> result_includes;
 		tsl::ordered_set<std::filesystem::path> result;
+		tsl::ordered_set<std::filesystem::path> result_includes;
+		tsl::ordered_set<std::filesystem::path> result_library_files;
 		const slang::ast::RootSymbol *root = nullptr;
 
 		// cli
 		std::optional<bool> show_help;
 		std::optional<bool> show_version;
-		std::optional<bool> include_dirs;
+		std::optional<bool> verific_compat;
 		std::optional<std::string> cache_file;
+		std::optional<std::string> output;
+		std::optional<std::string> output_flags_to;
+		std::vector<std::string> positionalArguments;
 	};
 } // namespace prunefl

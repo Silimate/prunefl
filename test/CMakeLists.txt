@@ -3,6 +3,11 @@ set(ALL_TESTS
   test_macros
   test_packages
   test_peerdeps
+  test_modules
+  test_incdir
+  test_cli_define
+  test_libmap
+  test_timescales
 )
 
 foreach(test_name ${ALL_TESTS})
@@ -11,6 +16,10 @@ foreach(test_name ${ALL_TESTS})
     NAME ${test_name}
     WORKING_DIRECTORY ${test_dir}
     COMMAND
-        bash -c "$<TARGET_FILE:prunefl> -C list.f --top top_module > ${CMAKE_BINARY_DIR}/${test_name}.f && $<TARGET_FILE:slang_hier> -C ${CMAKE_BINARY_DIR}/${test_name}.f --top top_module"
+        ${CMAKE_CURRENT_SOURCE_DIR}/run_test
+          ${test_name}
+          ${CMAKE_BINARY_DIR}
+          $<TARGET_FILE:prunefl>
+          $<TARGET_FILE:slang_hier>
   )
 endforeach()

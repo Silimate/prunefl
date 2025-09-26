@@ -1,0 +1,30 @@
+#!/bin/sh
+set -e
+set -x
+
+test=$1
+bindir=$2
+prunefl=$3
+slang_hier=$4
+
+verify_unused() {
+python3 << HERE
+import os
+
+if not os.path.exists('$1'):
+  exit(0)
+
+unused = { x.strip() for x in open('$1', encoding='utf8') }
+result = { x.strip() for x in open('$2', encoding='utf8') }
+
+assert len(unused & result) == 0
+HERE
+}
+
+$prunefl -f list.f --top top_module \
+  --output-flags-to $bindir/$test.flags.f \
+  --output $bindir/$test.f
+
+verify_unused ./unused.txt $bindir/$test.flags.f
+
+$slang_hier -F $bindir/$test.flags.f --top top_module --compat all --timescale=1ns/1ns

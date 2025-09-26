@@ -18,7 +18,7 @@
           callPackage = lib.callPackageWith pkgs';
         in {
           prunefl = callPackage ./default.nix {
-            flake = self;
+            src = self;
           };
         })
       ];
