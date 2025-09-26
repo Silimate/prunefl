@@ -29,13 +29,17 @@ The binary will be in `./result/bin/prunefl`.
 
 # Usage
 
-Make sure to use exactly -C or implicit macro resolution may go haywire.
+Make sure to use exactly --single-unit -f for implicit macro resolution while
+still properly propagating things like commandline defines.
 
 ```console
-$ ./build/prunefl -C test/mvp_model/mvp_model.f --top module_b --debug-out-pfx ./debug/tree
+$ ./build/prunefl --single-unit -f test/mvp_model/mvp_model.f --top module_b --output-flags-to flags.f --output pruned.f
 ```
 
-The files will be printed in topological order.
+`pruned.f` will contain the pruned file list, but to propagate defines,
+libraries, include paths and such forward you may want to pass flags.f to the
+tool instead (which points to the pruned file list using a `-C` in a single
+compilation unit.)
 
 # License
 

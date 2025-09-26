@@ -72,11 +72,19 @@ prunefl::Driver::Driver() : driver::Driver::Driver() {
 		"information. The directory it lies in must exist."
 	);
 	cmdLine.add(
-		"--include-dirs",
-		include_dirs,
-		"Instead of explicitly listing included files,"
-		"'+incdir+'. Needed for some less-flexible parsers."
+		"--output-flags-to",
+		output_flags_to,
+		"Instead of explicitly listing included files and modules, "
+		"output '+incdir+/-y/-Y/+define+' to this file. "
+		"--output must be specified, in which case it will be passed "
 	);
+	cmdLine.add(
+		"--output",
+		output,
+		"The file to output file paths to"
+	);
+	options.compat = slang::driver::CompatMode::All;
+	options.timeScale = "1ns/1ns";
 }
 
 void prunefl::Driver::parse_cli(int argc, char *argv[]) {
@@ -99,6 +107,11 @@ void prunefl::Driver::parse_cli(int argc, char *argv[]) {
 		throw std::runtime_error("Failed to process slang command-line options"
 		);
 	}
+	if (!output.has_value()) {
+		if (output_flags_to.has_value()) {
+			throw std::runtime_error("--output must be specified if --output-flags-to is specified.");
+		}
+	}
 
 	if (options.topModules.size() != 1) {
 		throw std::runtime_error(
@@ -120,6 +133,15 @@ bool prunefl::Driver::load_cache() {
 	nlohmann::json j;
 	cache_reader >> j;
 	cache_reader.close();
+
+	if (j["meta"]["prunefl_cache_version"] != 2) {
+		fmt::println(
+			stderr,
+			"Cache is incompatible with current version of prunefl. Pruning "
+			"new file list…"
+		);
+		return false;
+	}
 
 	std::set<std::filesystem::path> cache_loaded_files;
 	auto cache_input_file_list = j["input_file_list"];
@@ -171,14 +193,45 @@ bool prunefl::Driver::load_cache() {
 	return false;
 }
 
-void prunefl::Driver::prepare() {
+std::vector<std::filesystem::path> prunefl::Driver::getIncludes() const {
+	flat_hash_set<std::filesystem::path> includeSet;
+
+	for (auto &tree : syntaxTrees) {
+		for (auto &inc : tree->getIncludeDirectives()) {
+			if (inc.isSystem)
+				continue;
+
+			includeSet.insert(sourceManager.getFullPath(inc.buffer.id));
+		}
+	}
+
+	return std::vector<std::filesystem::path>(
+		includeSet.begin(), includeSet.end()
+	);
+}
+
+bool prunefl::Driver::gather_input_files() {
 	auto loaded_files = sourceLoader.loadSources();
+	// source files
 	for (auto &buffer : loaded_files) {
 		auto full_path = sourceManager.getFullPath(buffer.id);
 		input_file_list.insert(full_path);
 	}
-	if (cache_file.has_value() && load_cache()) {
-		return;
+	// library files
+	for (auto &[library, path] : sourceLoader.getLibraryFiles()) {
+		input_file_list.insert(path);
+	}
+	// library map files
+	for (auto &path : sourceLoader.getLibraryMapFiles()) {
+		input_file_list.insert(path);
+	}
+
+	return cache_file.has_value() && load_cache();
+}
+
+void prunefl::Driver::prepare() {
+	if (gather_input_files()) {
+		return; // cached
 	}
 
 	// Parse sources and report compilation issues to stderr
@@ -196,7 +249,7 @@ void prunefl::Driver::prepare() {
 								 "found. Cannot prune file list.");
 	}
 
-	auto included_files = getDepfiles(true);
+	auto included_files = getIncludes();
 	for (auto &file : included_files) {
 		result_includes.insert(file);
 	}
@@ -295,12 +348,25 @@ prunefl::Driver::get_sorted_set() {
 		node_states[current_node].peer_dependencies_enqueued = true;
 	}
 
+	tsl::ordered_set<std::filesystem::path> library_files;
+	for (auto &[library, path] : sourceLoader.getLibraryFiles()) {
+		library_files.insert(path);
+	}
+
 	for (auto id : id_result) {
 		auto file = sourceManager.getFullPath(id);
-		if (print_include_dirs() && result_includes.count(file) &&
-			!input_file_list.count(file)) {
-			// Do not add included files to list unless they are explicitly
-			// listed as an input.
+		if (output_flags_to.has_value()) {
+			if (result_includes.count(file) && !input_file_list.count(file)) {
+				// Do not add included files to list unless they are explicitly
+				// listed as an input.
+				continue;
+			}
+			if (library_files.count(file)) {
+				// Do not add library files to list.
+				continue;
+			}
+		}
+		if (file.string().starts_with("<unnamed_buffer")) {
 			continue;
 		}
 		result.insert(file);
@@ -308,11 +374,69 @@ prunefl::Driver::get_sorted_set() {
 	return result;
 }
 
-const tsl::ordered_set<std::filesystem::path>
-prunefl::Driver::get_include_directories() const {
-	tsl::ordered_set<std::filesystem::path> include_dirs;
-	for (auto &file : result_includes) {
-		include_dirs.insert(file.parent_path());
+void prunefl::Driver::write_pruned_file_list() {
+	auto sorted_set = get_sorted_set();
+	
+	std::string out_string = "";
+	
+	for (const auto &file: sorted_set) {
+		out_string += fmt::format("{}\n", file.c_str());
 	}
-	return include_dirs;
+	
+	fmt::println("{}", out_string);
+	
+	if (output.has_value()) {
+		OS::writeFile(*output, out_string);
+	} else {
+		OS::print(out_string);
+	}
+}
+
+void prunefl::Driver::write_output_flags() const {
+	if (!output_flags_to.has_value()) {
+		return;
+	}
+	tsl::ordered_set<std::string> output_flags;
+
+	// defines
+	for (auto &define : options.defines) {
+		output_flags.insert(std::string("+define+") + define);
+	}
+
+	// include search directories
+	for (auto &file : result_includes) {
+		output_flags.insert(
+			std::string("+incdir+") + file.parent_path().string()
+		);
+	}
+
+	// module search directories
+	for (auto &dir : sourceLoader.getSearchDirectories()) {
+		output_flags.insert(std::string("-y ") + dir.string());
+	}
+
+	// module search extensions
+	for (auto &ext : sourceLoader.getSearchExtensions()) {
+		output_flags.insert(std::string("-Y ") + ext.string());
+	}
+
+	// library files
+	for (auto &[library, path] : sourceLoader.getLibraryFiles()) {
+		if (library == nullptr) {
+			output_flags.insert(fmt::format("-v {}", path.c_str()));
+		} else {
+			output_flags.insert(
+				fmt::format("-v {}={}", library->name, path.c_str())
+			);
+		}
+	}
+	
+	output_flags.insert(fmt::format("-C {}", output->c_str()));
+
+	std::string out_string;
+	for (auto &flag : output_flags) {
+		out_string += fmt::format("{}\n", flag);
+	}
+
+	OS::writeFile(*output_flags_to, out_string);
 }

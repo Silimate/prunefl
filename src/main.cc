@@ -33,16 +33,8 @@ int main(int argc, char *argv[]) {
 	try {
 		driver.parse_cli(argc, argv);
 		driver.prepare();
-		auto result = driver.get_sorted_set();
-		for (auto &file : result) {
-			fmt::println("{}", file.c_str());
-		}
-		if (driver.print_include_dirs()) {
-			auto include_result = driver.get_include_directories();
-			for (auto &dir : include_result) {
-				fmt::println("+incdir+{}", dir.c_str());
-			}
-		}
+		driver.write_pruned_file_list();
+		driver.write_output_flags();
 		std::fflush(nullptr);
 		driver.try_write_cache();
 
