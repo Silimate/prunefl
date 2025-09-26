@@ -120,6 +120,7 @@ namespace prunefl {
 		// cli
 		std::optional<bool> show_help;
 		std::optional<bool> show_version;
+		std::optional<bool> verific_compat;
 		std::optional<std::string> cache_file;
 		std::optional<std::string> output;
 		std::optional<std::string> output_flags_to;

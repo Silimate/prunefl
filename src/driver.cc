@@ -79,6 +79,12 @@ prunefl::Driver::Driver() : driver::Driver::Driver() {
 		"output '+incdir+/-y/-Y/+define+' to this file. "
 		"--output must be specified, in which case it will be passed "
 	);
+	cmdLine.add(
+		"--verific-compat",
+		verific_compat,
+		"For --output-flags-to, only output flags compatible with the Verific "
+		"frontend."
+	);
 	cmdLine.add("--output", output, "The file to output file paths to");
 
 	options.compat = slang::driver::CompatMode::All;
@@ -181,13 +187,13 @@ bool prunefl::Driver::load_cache() {
 		fmt::println(
 			stderr, "Input files have not changed, loading from cache…"
 		);
-		for (const auto &file: j["result"]) {
+		for (const auto &file : j["result"]) {
 			result.insert(fs::path(file.get<std::string>()));
 		}
-		for (const auto &file: j["result_includes"]) {
+		for (const auto &file : j["result_includes"]) {
 			result_includes.insert(fs::path(file.get<std::string>()));
 		}
-		for (const auto &file: j["result_library_files"]) {
+		for (const auto &file : j["result_library_files"]) {
 			result_library_files.insert(fs::path(file.get<std::string>()));
 		}
 		return true;
@@ -302,7 +308,7 @@ void prunefl::Driver::try_write_cache() const {
 	}
 	fs::path cache_path{*cache_file};
 	nlohmann::json file_hashes;
-	
+
 	add_file_hashes(file_hashes, result);
 	add_file_hashes(file_hashes, result_library_files);
 	add_file_hashes(file_hashes, result_includes);
@@ -398,10 +404,10 @@ void prunefl::Driver::write_pruned_file_list() {
 	}
 
 	if (!output_flags_to.has_value()) {
-		for (const auto &file: result_includes) {
+		for (const auto &file : result_includes) {
 			out_string += fmt::format("{}\n", file.c_str());
 		}
-		for (const auto &file: result_library_files) {
+		for (const auto &file : result_library_files) {
 			out_string += fmt::format("{}\n", file.c_str());
 		}
 	}
@@ -417,6 +423,8 @@ void prunefl::Driver::write_output_flags() const {
 	if (!output_flags_to.has_value()) {
 		return;
 	}
+
+	bool verific_compat_mode = verific_compat.has_value() && *verific_compat;
 	tsl::ordered_set<std::string> output_flags;
 
 	// defines
@@ -437,8 +445,12 @@ void prunefl::Driver::write_output_flags() const {
 	}
 
 	// module search extensions
-	for (auto &ext : sourceLoader.getSearchExtensions()) {
-		output_flags.insert(std::string("-Y ") + ext.string());
+	if (verific_compat_mode) {
+		output_flags.insert(std::string("+libext+"));
+	} else {
+		for (auto &ext : sourceLoader.getSearchExtensions()) {
+			output_flags.insert(std::string("-Y ") + ext.string());
+		}
 	}
 
 	// library files
@@ -452,7 +464,15 @@ void prunefl::Driver::write_output_flags() const {
 		}
 	}
 
-	output_flags.insert(fmt::format("-C {}", output->c_str()));
+	// input command file
+	if (verific_compat_mode) {
+		// verific is single-unit by default, so -C doesn't matter
+		output_flags.insert(fmt::format("-f {}", fs::absolute(*output).c_str())
+		);
+	} else {
+		output_flags.insert(fmt::format("-C {}", fs::absolute(*output).c_str())
+		);
+	}
 
 	std::string out_string;
 	for (auto &flag : output_flags) {
