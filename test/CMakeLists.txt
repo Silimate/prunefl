@@ -8,6 +8,7 @@ set(ALL_TESTS
   test_cli_define
   test_libmap
   test_timescales
+  test_no_list
 )
 
 foreach(test_name ${ALL_TESTS})

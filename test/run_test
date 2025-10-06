@@ -21,10 +21,30 @@ assert len(unused & result) == 0
 HERE
 }
 
-$prunefl -f list.f --top top_module \
+rm -f $bindir/$test.cache.json
+
+input_file="-f list.f"
+if ! test -f list.f; then
+  input_file=test.v
+fi
+
+$prunefl $input_file --top top_module \
+  --verific-compat --ignore-unknown-modules\
   --output-flags-to $bindir/$test.flags.f \
-  --output $bindir/$test.f
+  --output $bindir/$test.f \
+  --cache-to $bindir/$test.cache.json
 
 verify_unused ./unused.txt $bindir/$test.flags.f
 
-$slang_hier -F $bindir/$test.flags.f --top top_module --compat all --timescale=1ns/1ns
+$slang_hier --single-unit -F $bindir/$test.flags.f --top top_module --compat all --timescale=1ns/1ns
+
+# test loading from cache
+$prunefl $input_file --top top_module \
+  --verific-compat --ignore-unknown-modules\
+  --output-flags-to $bindir/$test.flags.cached.f \
+  --output $bindir/$test.cached.f \
+  --cache-to $bindir/$test.cache.json
+
+# only difference should be that it points to .cached.f instead of .f
+cat $bindir/$test.flags.cached.f | sed 's/.cached.f/.f/' | cmp $bindir/$test.flags.f - 
+cmp $bindir/$test.f $bindir/$test.cached.f

@@ -429,28 +429,25 @@ void prunefl::Driver::write_output_flags() const {
 
 	// defines
 	for (auto &define : options.defines) {
-		output_flags.insert(std::string("+define+") + define);
+		output_flags.insert(fmt::format("+define+{}", define));
 	}
 
 	// include search directories
 	for (auto &file : result_includes) {
 		output_flags.insert(
-			std::string("+incdir+") + file.parent_path().string()
+			fmt::format("+incdir+{}", file.parent_path().string())
 		);
 	}
 
 	// module search directories
 	for (auto &dir : sourceLoader.getSearchDirectories()) {
-		output_flags.insert(std::string("-y ") + dir.string());
+		output_flags.insert(fmt::format("-y {}", dir.string()));
 	}
 
 	// module search extensions
-	if (verific_compat_mode) {
-		output_flags.insert(std::string("+libext+"));
-	} else {
-		for (auto &ext : sourceLoader.getSearchExtensions()) {
-			output_flags.insert(std::string("-Y ") + ext.string());
-		}
+	std::string_view libext_pfx = verific_compat_mode ? "+libext+" : "-Y ";
+	for (auto &ext : sourceLoader.getSearchExtensions()) {
+		output_flags.insert(fmt::format("{}{}", libext_pfx, ext.string()));
 	}
 
 	// library files
@@ -465,14 +462,14 @@ void prunefl::Driver::write_output_flags() const {
 	}
 
 	// input command file
-	if (verific_compat_mode) {
-		// verific is single-unit by default, so -C doesn't matter
-		output_flags.insert(fmt::format("-f {}", fs::absolute(*output).c_str())
-		);
-	} else {
-		output_flags.insert(fmt::format("-C {}", fs::absolute(*output).c_str())
-		);
-	}
+	std::string_view cmdfile_pfx =
+		verific_compat_mode
+			? "-f " // verific is single-unit by default, so -C doesn't matter
+			: "-C ";
+
+	output_flags.insert(
+		fmt::format("{}{}", cmdfile_pfx, fs::absolute(*output).c_str())
+	);
 
 	std::string out_string;
 	for (auto &flag : output_flags) {
