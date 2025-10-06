@@ -1,0 +1,31 @@
+name: Test
+on:
+  push:
+
+jobs:
+  build_and_test:
+    name: "Build and Test"
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      # No need to install dependencies — only Ninja and CMake are needed,
+      # slang CMakeLists.txt fetch the rest.
+      #
+      #    https://github.com/actions/runner-images
+      - name: Build
+        run: |
+          rm -rf ./build
+          mkdir -p ./build
+          cd ./build
+          cmake -G Ninja ..
+          ninja
+      - name: Test
+        run: |
+          cd ./build
+          ctest
