@@ -31,6 +31,14 @@
 #include <tsl/ordered_set.h>
 
 namespace prunefl {
+
+// Custom hash for std::filesystem::path to support older compilers (GCC 11)
+// that don't provide std::hash<std::filesystem::path>
+struct PathHash {
+	std::size_t operator()(const std::filesystem::path& p) const noexcept {
+		return std::hash<std::string>{}(p.native());
+	}
+};
 	class Driver : public slang::driver::Driver {
 	public:
 		Driver();
@@ -66,7 +74,7 @@ namespace prunefl {
 		 * @exception std::runtime_error if a cycle is detected during the
 		 * topological sort.
 		 */
-		const tsl::ordered_set<std::filesystem::path> &get_sorted_set();
+		const tsl::ordered_set<std::filesystem::path, PathHash> &get_sorted_set();
 
 		/**
 		 * @brief To be optionally run after prepare() (at any point).
@@ -112,9 +120,9 @@ namespace prunefl {
 		// members
 		std::unique_ptr<slang::ast::Compilation> compilation;
 		std::set<std::filesystem::path> input_file_list;
-		tsl::ordered_set<std::filesystem::path> result;
-		tsl::ordered_set<std::filesystem::path> result_includes;
-		tsl::ordered_set<std::filesystem::path> result_library_files;
+		tsl::ordered_set<std::filesystem::path, PathHash> result;
+		tsl::ordered_set<std::filesystem::path, PathHash> result_includes;
+		tsl::ordered_set<std::filesystem::path, PathHash> result_library_files;
 		const slang::ast::RootSymbol *root = nullptr;
 
 		// cli

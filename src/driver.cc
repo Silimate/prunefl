@@ -330,7 +330,7 @@ void prunefl::Driver::try_write_cache() const {
 	writer.close();
 }
 
-const tsl::ordered_set<fs::path> &prunefl::Driver::get_sorted_set() {
+const tsl::ordered_set<fs::path, prunefl::PathHash> &prunefl::Driver::get_sorted_set() {
 	if (!result.empty()) {
 		return result;
 	}
