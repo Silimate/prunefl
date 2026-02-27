@@ -1,0 +1,89 @@
+name: Release (anylinux amd64)
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    name: Build anylinux amd64 tarball
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Build in Alpine container
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            --platform linux/amd64 \
+            alpine:3.20 sh -c '
+              set -ex
+              apk add --no-cache \
+                build-base cmake ninja python3 git
+              git config --global --add safe.directory /src
+              git submodule foreach --recursive git config --global --add safe.directory \$toplevel/\$sm_path
+              mkdir -p build
+              cd build
+              cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ..
+              ninja
+              mkdir -p /tmp/install/usr/local/bin
+              cp prunefl /tmp/install/usr/local/bin/
+              cd /tmp/install
+              tar czf /src/prunefl-anylinux-amd64.tar.gz .
+            '
+
+      - name: Generate release notes
+        id: meta
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          FULL_SHA=$(git rev-parse HEAD)
+          DATE=$(date -u +%Y-%m-%d)
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          printf '%s\n' \
+            "Automated build from \`master\` @ [\`${SHORT_SHA}\`](${REPO_URL}/commit/${FULL_SHA})" \
+            "" \
+            "**Platform:** Linux amd64 (Alpine-based, portable across Linux distros)" \
+            "**Built:** ${DATE}" \
+            "" \
+            "### Installation" \
+            "\`\`\`bash" \
+            "sudo tar xzf prunefl-anylinux-amd64.tar.gz -C /" \
+            "\`\`\`" \
+            > release_notes.md
+
+      - name: Create permanent release
+        run: |
+          TAG="build-${{ steps.meta.outputs.date }}-${{ steps.meta.outputs.short_sha }}"
+          gh release create "$TAG" \
+            prunefl-anylinux-amd64.tar.gz \
+            --target "${{ github.sha }}" \
+            --title "Build ${{ steps.meta.outputs.date }} (${{ steps.meta.outputs.short_sha }})" \
+            --notes-file release_notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update latest release
+        run: |
+          git tag -f latest HEAD
+          git push -f origin latest
+          gh release delete latest --yes 2>/dev/null || true
+          gh release create latest \
+            prunefl-anylinux-amd64.tar.gz \
+            --target "${{ github.sha }}" \
+            --title "Latest Build (${{ steps.meta.outputs.date }})" \
+            --notes-file release_notes.md \
+            --prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
