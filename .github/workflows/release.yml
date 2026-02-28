@@ -29,15 +29,32 @@ jobs:
             alpine:3.21 sh -c '
               set -ex
               apk add --no-cache \
-                build-base cmake ninja python3 git
+                build-base cmake ninja python3 git patchelf
               git config --global --add safe.directory /src
               git submodule foreach --recursive git config --global --add safe.directory \$toplevel/\$sm_path
               mkdir -p build
               cd build
               cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ..
               ninja
-              mkdir -p /tmp/install/usr/local/bin
+              mkdir -p /tmp/install/usr/local/bin /tmp/install/usr/local/lib
               cp prunefl /tmp/install/usr/local/bin/
+
+              # Bundle shared library dependencies and set RPATHs
+              STAGE=/tmp/install/usr/local
+              for f in "$STAGE"/bin/*; do
+                [ -f "$f" ] || continue
+                ldd "$f" 2>/dev/null | awk "/=>/ {print \$3}" | while read -r lib; do
+                  [ -f "$lib" ] || continue
+                  base=$(basename "$lib")
+                  case "$base" in ld-musl-*|libc.musl-*) continue ;; esac
+                  [ -f "$STAGE/lib/$base" ] || cp "$lib" "$STAGE/lib/$base"
+                done
+                patchelf --set-rpath "\$ORIGIN/../lib" "$f"
+              done
+              for f in "$STAGE"/lib/*.so*; do
+                [ -f "$f" ] && patchelf --set-rpath "\$ORIGIN" "$f" 2>/dev/null || true
+              done
+
               cd /tmp/install
               tar czf /src/prunefl-anylinux-amd64.tar.gz .
             '
