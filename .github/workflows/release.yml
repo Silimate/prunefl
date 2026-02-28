@@ -3,7 +3,7 @@ name: Release (anylinux amd64)
 on:
   push:
     branches:
-      - master
+      - main
   workflow_dispatch:
 
 permissions:
@@ -26,7 +26,7 @@ jobs:
             -v "${{ github.workspace }}:/src" \
             -w /src \
             --platform linux/amd64 \
-            alpine:3.20 sh -c '
+            alpine:3.21 sh -c '
               set -ex
               apk add --no-cache \
                 build-base cmake ninja python3 git
@@ -52,7 +52,7 @@ jobs:
           echo "date=$DATE" >> "$GITHUB_OUTPUT"
           REPO_URL="${{ github.server_url }}/${{ github.repository }}"
           printf '%s\n' \
-            "Automated build from \`master\` @ [\`${SHORT_SHA}\`](${REPO_URL}/commit/${FULL_SHA})" \
+            "Automated build from \`main\` @ [\`${SHORT_SHA}\`](${REPO_URL}/commit/${FULL_SHA})" \
             "" \
             "**Platform:** Linux amd64 (Alpine-based, portable across Linux distros)" \
             "**Built:** ${DATE}" \
