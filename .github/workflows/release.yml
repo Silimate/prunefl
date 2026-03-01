@@ -1,4 +1,4 @@
-name: Release (anylinux amd64)
+name: Release (anylinux amd64 + macOS arm64)
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  build-linux:
     runs-on: ubuntu-latest
     name: Build anylinux amd64 tarball
 
@@ -71,12 +71,17 @@ jobs:
           printf '%s\n' \
             "Automated build from \`main\` @ [\`${SHORT_SHA}\`](${REPO_URL}/commit/${FULL_SHA})" \
             "" \
-            "**Platform:** Linux amd64 (Alpine-based, portable across Linux distros)" \
             "**Built:** ${DATE}" \
+            "" \
+            "### Assets" \
+            "| File | Platform |" \
+            "|------|----------|" \
+            "| \`prunefl-anylinux-amd64.tar.gz\` | Linux x86-64 (Alpine-based, portable) |" \
+            "| \`prunefl-macos-arm64.tar.gz\` | macOS Apple Silicon |" \
             "" \
             "### Installation" \
             "\`\`\`bash" \
-            "sudo tar xzf prunefl-anylinux-amd64.tar.gz -C /" \
+            "sudo tar xzf prunefl-<platform>.tar.gz -C /" \
             "\`\`\`" \
             > release_notes.md
 
@@ -102,5 +107,73 @@ jobs:
             --title "Latest Build (${{ steps.meta.outputs.date }})" \
             --notes-file release_notes.md \
             --prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-macos:
+    runs-on: macos-14
+    name: Build macOS arm64 tarball
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja
+
+      - name: Build and package tarball
+        run: |
+          set -ex
+          mkdir -p build
+          cd build
+          cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ..
+          ninja
+          mkdir -p /tmp/install/usr/local/bin /tmp/install/usr/local/lib
+          cp prunefl /tmp/install/usr/local/bin/
+
+          STAGE=/tmp/install/usr/local
+
+          # Bundle non-system shared library dependencies
+          for f in "$STAGE"/bin/*; do
+            [ -f "$f" ] || continue
+            otool -L "$f" 2>/dev/null | awk 'NR>1 {print $1}' | while read -r lib; do
+              [ -f "$lib" ] || continue
+              base=$(basename "$lib")
+              case "$base" in libSystem*|libc++*|libobjc*) continue ;; esac
+              case "$lib" in /usr/lib/*|/System/*) continue ;; esac
+              [ -f "$STAGE/lib/$base" ] || cp "$lib" "$STAGE/lib/$base"
+            done
+          done
+
+          # Fix install names
+          for f in "$STAGE"/bin/*; do
+            [ -f "$f" ] || continue
+            install_name_tool -add_rpath "@executable_path/../lib" "$f" 2>/dev/null || true
+            for lib in "$STAGE"/lib/*.dylib; do
+              [ -f "$lib" ] || continue
+              base=$(basename "$lib")
+              install_name_tool -change "$(otool -L "$f" | grep "$base" | awk '{print $1}')" "@rpath/$base" "$f" 2>/dev/null || true
+            done
+          done
+          for f in "$STAGE"/lib/*.dylib; do
+            [ -f "$f" ] || continue
+            install_name_tool -id "@rpath/$(basename "$f")" "$f" 2>/dev/null || true
+          done
+
+          cd /tmp/install
+          tar czf "${{ github.workspace }}/prunefl-macos-arm64.tar.gz" .
+
+      - name: Upload to permanent release
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y-%m-%d)
+          TAG="build-${DATE}-${SHORT_SHA}"
+          until gh release view "$TAG" >/dev/null 2>&1; do sleep 5; done
+          gh release upload "$TAG" prunefl-macos-arm64.tar.gz --clobber
+          until gh release view latest >/dev/null 2>&1; do sleep 5; done
+          gh release upload latest prunefl-macos-arm64.tar.gz --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
