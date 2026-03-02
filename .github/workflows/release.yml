@@ -1,4 +1,4 @@
-name: Release (anylinux amd64 + macOS arm64)
+name: Release (anylinux amd64 + manylinux2014 amd64 + macOS arm64)
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-linux:
     runs-on: ubuntu-latest
-    name: Build anylinux amd64 tarball
+    name: Build anylinux amd64 tarball (musl)
 
     steps:
       - uses: actions/checkout@v4
@@ -59,56 +59,83 @@ jobs:
               tar czf /src/prunefl-anylinux-amd64.tar.gz .
             '
 
-      - name: Generate release notes
-        id: meta
-        run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          FULL_SHA=$(git rev-parse HEAD)
-          DATE=$(date -u +%Y-%m-%d)
-          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
-          echo "date=$DATE" >> "$GITHUB_OUTPUT"
-          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
-          printf '%s\n' \
-            "Automated build from \`main\` @ [\`${SHORT_SHA}\`](${REPO_URL}/commit/${FULL_SHA})" \
-            "" \
-            "**Built:** ${DATE}" \
-            "" \
-            "### Assets" \
-            "| File | Platform |" \
-            "|------|----------|" \
-            "| \`prunefl-anylinux-amd64.tar.gz\` | Linux x86-64 (Alpine-based, portable) |" \
-            "| \`prunefl-macos-arm64.tar.gz\` | macOS Apple Silicon |" \
-            "" \
-            "### Installation" \
-            "\`\`\`bash" \
-            "sudo tar xzf prunefl-<platform>.tar.gz -C /" \
-            "\`\`\`" \
-            > release_notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prunefl-anylinux-amd64
+          path: prunefl-anylinux-amd64.tar.gz
 
-      - name: Create permanent release
-        run: |
-          TAG="build-${{ steps.meta.outputs.date }}-${{ steps.meta.outputs.short_sha }}"
-          gh release create "$TAG" \
-            prunefl-anylinux-amd64.tar.gz \
-            --target "${{ github.sha }}" \
-            --title "Build ${{ steps.meta.outputs.date }} (${{ steps.meta.outputs.short_sha }})" \
-            --notes-file release_notes.md
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  build-manylinux:
+    runs-on: ubuntu-latest
+    name: Build manylinux2014 amd64 tarball (glibc 2.17+)
 
-      - name: Update latest release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Build in CentOS 7 container
         run: |
-          git tag -f latest HEAD
-          git push -f origin latest
-          gh release delete latest --yes 2>/dev/null || true
-          gh release create latest \
-            prunefl-anylinux-amd64.tar.gz \
-            --target "${{ github.sha }}" \
-            --title "Latest Build (${{ steps.meta.outputs.date }})" \
-            --notes-file release_notes.md \
-            --prerelease
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            --platform linux/amd64 \
+            centos:7 bash -c '
+              set -ex
+
+              sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo
+              sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo
+              sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo
+
+              yum install -y centos-release-scl epel-release
+              sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo
+              sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo
+              sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo
+
+              yum install -y devtoolset-11-gcc-c++ make git curl python3 patchelf
+
+              curl -L https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.tar.gz | tar -xzC /opt
+              export PATH=/opt/cmake-3.28.3-linux-x86_64/bin:$PATH
+
+              # Install ninja from pre-built binary
+              curl -L https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-linux.zip -o /tmp/ninja.zip
+              cd /tmp && python3 -c "import zipfile; zipfile.ZipFile(\"ninja.zip\").extractall()" && chmod +x ninja && mv ninja /usr/local/bin/
+              cd /src
+
+              source /opt/rh/devtoolset-11/enable
+              git config --global --add safe.directory /src
+              git submodule foreach --recursive git config --global --add safe.directory \$toplevel/\$sm_path
+
+              mkdir -p build
+              cd build
+              cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ..
+              ninja
+              mkdir -p /tmp/install/usr/local/bin /tmp/install/usr/local/lib
+              cp prunefl /tmp/install/usr/local/bin/
+
+              STAGE=/tmp/install/usr/local
+              for f in "$STAGE"/bin/*; do
+                [ -f "$f" ] || continue
+                ldd "$f" 2>/dev/null | awk "/=>/ {print \$3}" | while read -r lib; do
+                  [ -f "$lib" ] || continue
+                  base=$(basename "$lib")
+                  case "$base" in ld-linux*|libc.so*|libdl*|libpthread*|librt*|libm.so*) continue ;; esac
+                  [ -f "$STAGE/lib/$base" ] || cp "$lib" "$STAGE/lib/$base"
+                done
+                patchelf --set-rpath "\$ORIGIN/../lib" "$f"
+              done
+              for f in "$STAGE"/lib/*.so*; do
+                [ -f "$f" ] && patchelf --set-rpath "\$ORIGIN" "$f" 2>/dev/null || true
+              done
+
+              cd /tmp/install
+              tar czf /src/prunefl-manylinux2014-amd64.tar.gz .
+            '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prunefl-manylinux2014-amd64
+          path: prunefl-manylinux2014-amd64.tar.gz
 
   build-macos:
     runs-on: macos-15
@@ -166,14 +193,78 @@ jobs:
           cd /tmp/install
           tar czf "${{ github.workspace }}/prunefl-macos-arm64.tar.gz" .
 
-      - name: Upload to permanent release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prunefl-macos-arm64
+          path: prunefl-macos-arm64.tar.gz
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-manylinux, build-macos]
+    name: Create GitHub releases
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Generate release notes
+        id: meta
         run: |
           SHORT_SHA=$(git rev-parse --short HEAD)
+          FULL_SHA=$(git rev-parse HEAD)
           DATE=$(date -u +%Y-%m-%d)
-          TAG="build-${DATE}-${SHORT_SHA}"
-          until gh release view "$TAG" >/dev/null 2>&1; do sleep 5; done
-          gh release upload "$TAG" prunefl-macos-arm64.tar.gz --clobber
-          until gh release view latest >/dev/null 2>&1; do sleep 5; done
-          gh release upload latest prunefl-macos-arm64.tar.gz --clobber
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          printf '%s\n' \
+            "Automated build from \`main\` @ [\`${SHORT_SHA}\`](${REPO_URL}/commit/${FULL_SHA})" \
+            "" \
+            "**Built:** ${DATE}" \
+            "" \
+            "### Assets" \
+            "| File | Platform |" \
+            "|------|----------|" \
+            "| \`prunefl-anylinux-amd64.tar.gz\` | Linux x86-64 (musl, statically portable) |" \
+            "| \`prunefl-manylinux2014-amd64.tar.gz\` | Linux x86-64 (manylinux2014, glibc 2.17+) |" \
+            "| \`prunefl-macos-arm64.tar.gz\` | macOS Apple Silicon |" \
+            "" \
+            "### Installation" \
+            "\`\`\`bash" \
+            "sudo tar xzf prunefl-<platform>.tar.gz -C /" \
+            "\`\`\`" \
+            > release_notes.md
+
+      - name: Create permanent release
+        run: |
+          TAG="build-${{ steps.meta.outputs.date }}-${{ steps.meta.outputs.short_sha }}"
+          gh release create "$TAG" \
+            prunefl-anylinux-amd64.tar.gz \
+            prunefl-manylinux2014-amd64.tar.gz \
+            prunefl-macos-arm64.tar.gz \
+            --target "${{ github.sha }}" \
+            --title "Build ${{ steps.meta.outputs.date }} (${{ steps.meta.outputs.short_sha }})" \
+            --notes-file release_notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update latest release
+        run: |
+          git tag -f latest HEAD
+          git push -f origin latest
+          gh release delete latest --yes 2>/dev/null || true
+          gh release create latest \
+            prunefl-anylinux-amd64.tar.gz \
+            prunefl-manylinux2014-amd64.tar.gz \
+            prunefl-macos-arm64.tar.gz \
+            --target "${{ github.sha }}" \
+            --title "Latest Build (${{ steps.meta.outputs.date }})" \
+            --notes-file release_notes.md \
+            --prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
