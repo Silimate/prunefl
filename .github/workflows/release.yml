@@ -94,8 +94,8 @@ jobs:
 
               yum install -y devtoolset-11-gcc-c++ make git curl python3 patchelf
 
-              curl -L https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.tar.gz | tar -xzC /opt
-              export PATH=/opt/cmake-3.28.3-linux-x86_64/bin:$PATH
+              curl -L https://github.com/Kitware/CMake/releases/download/v3.31.4/cmake-3.31.4-linux-x86_64.tar.gz | tar -xzC /opt
+              export PATH=/opt/cmake-3.31.4-linux-x86_64/bin:$PATH
 
               # Install ninja from pre-built binary
               curl -L https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-linux.zip -o /tmp/ninja.zip
