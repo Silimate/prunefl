@@ -1,31 +1,19 @@
 name: Build and run tests
+
 on:
   push:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build_and_test:
-    name: "Build and Test"
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [ubuntu-24.04, macos-15]
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      # No need to install dependencies — only Ninja and CMake are needed,
-      # slang CMakeLists.txt fetch the rest.
-      #
-      #    https://github.com/actions/runner-images
-      - name: Build
-        run: |
-          rm -rf ./build
-          mkdir -p ./build
-          cd ./build
-          cmake -G Ninja ..
-          ninja
-      - name: Test
-        run: |
-          cd ./build
-          ctest
+  build-and-test:
+    uses: Silimate/actions/.github/workflows/cpp-cmake-ci.yml@v1
+    with:
+      # No dependency install: the runners already have Ninja and CMake, and
+      # slang's CMakeLists fetches the rest.
+      runners: >-
+        [{"name":"Ubuntu 24.04","family":"linux","runner":"ubuntu-24.04","arch":"x86_64"},
+         {"name":"macOS 15","family":"macos","runner":"macos-15","arch":"arm64"}]
+      cmake-generator: Ninja
