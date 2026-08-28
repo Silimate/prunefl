@@ -1,6 +1,7 @@
 # Top-level
 cmake_minimum_required(VERSION 3.30)
 project(prunefl)
+set(CMAKE_CXX_STANDARD 17)
 
 # Submodules and Third Party
 add_subdirectory(third_party/PicoSHA2)
@@ -17,15 +18,15 @@ set_target_properties(
     VISIBILITY_INLINES_HIDDEN OFF
 )
 # Version
-add_custom_command(
-    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/version.cc"
+add_custom_target(version_file
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    COMMAND cat "${PROJECT_SOURCE_DIR}/VERSION" | python3 "${PROJECT_SOURCE_DIR}/misc/file2utf8z.py" VERSION > "${CMAKE_CURRENT_BINARY_DIR}/version.cc"
-    MAIN_DEPENDENCY "${PROJECT_SOURCE_DIR}/VERSION"
+    BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/version.cc"
+    COMMAND python3 "${PROJECT_SOURCE_DIR}/misc/make_version_cc.py" ${PRUNEFL_VERSION} > "${CMAKE_CURRENT_BINARY_DIR}/version.cc"
 )
 
 # Products
 add_executable(prunefl src/main.cc src/driver.cc "${CMAKE_CURRENT_BINARY_DIR}/version.cc")
+add_dependencies(prunefl version_file)
 set_property(TARGET prunefl PROPERTY CXX_STANDARD 20)
 target_include_directories(prunefl PUBLIC include)
 target_include_directories(prunefl PRIVATE third_party/access_private_20/include)

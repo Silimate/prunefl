@@ -1,0 +1,8 @@
+[build-system]
+requires = [
+	"wheel",
+	"packaging",
+	"cmake",
+]
+backend-path = ["."]
+build-backend = "wheel_build"
