@@ -2,10 +2,22 @@ name: Build and run tests
 
 on:
   push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Behavior:
+  # - Group all pull requests: latest push cancels previous ones
+  # - Group all branches: run serially
+  group: >
+    test-${{
+      (github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)) ||
+      ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && format('branch-{0}', github.ref_name)) ||
+      ''
+    }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-and-test:

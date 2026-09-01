@@ -1,4 +1,4 @@
-name: Release (anylinux amd64 + manylinux2014 amd64 + macOS arm64)
+name: "Release (anylinux amd64 + manylinux2014 amd64 + macOS arm64)"
 
 on:
   push:
@@ -6,42 +6,130 @@ on:
       - main
   pull_request:
   workflow_dispatch:
-    inputs:
-      draft:
-        description: Publish a draft release and leave the `latest` tag alone.
-        type: boolean
-        default: false
-
-permissions:
-  contents: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Behavior:
+  # - Group all pull requests: latest push cancels previous ones
+  # - Group all branches: run serially
+  group: >
+    release-${{
+      (github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)) ||
+      ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && format('branch-{0}', github.ref_name)) ||
+      ''
+    }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: '${{ steps.info.outputs.version }}'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: info
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BASE_VER=$(git show HEAD -q --format="%cs" | tr -d '\n' | tr '-' '.')
+          COUNTER=0
+          CURRENT_VER=$BASE_VER
+          while gh release view "v$CURRENT_VER" > /dev/null 2>&1; do
+            COUNTER=$(expr $COUNTER + 1)
+            CURRENT_VER=$BASE_VER.post$COUNTER
+          done
+          echo "Found unused version $CURRENT_VER."
+          echo "version=$CURRENT_VER" >> $GITHUB_OUTPUT
+  wheel-build:
+    needs: [version]
+    strategy:
+      matrix:
+        os:
+          [
+            {
+              name: "ubuntu",
+              runner: "ubuntu-24.04",
+              arch: "x86_64",
+            },
+            {
+              name: "macos",
+              runner: "macos-15",
+              arch: "arm64",
+            },
+          ]
+    name: Build and Test Binary Wheels | ${{ matrix.os.name }}
+    runs-on: ${{ matrix.os.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: true
+      - if: ${{ matrix.os.name == 'macos' && matrix.os.arch == 'arm64' }}
+        name: "[macOS/arm64] Install Python 3.8 (see: https://cibuildwheel.pypa.io/en/v3.4.1/faq/#macos-building-cpython-38-wheels-on-arm64)"
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.8
+      - name: Build sdist
+        # only build on one platform, not sure what the collision behavior is
+        if: ${{ matrix.os.name == 'macos' && matrix.os.arch == 'arm64' }}
+        run: |
+          pipx run build --sdist
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v4.2.0
+        with:
+          # Explicit so it can't drift from the upload path below
+          output-dir: dist
+        env:
+          CIBW_ARCHS: ${{ matrix.os.arch }}
+          CIBW_BUILD_VERBOSITY: "1"
+          # manylinux2014 (CentOS 7) does not have a modern enough C++ compiler
+          # for slang
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
+          CIBW_ENVIRONMENT: >
+            MACOSX_DEPLOYMENT_TARGET=11.0
+            PRUNEFL_WHEEL_VERSION=${{ needs.version.outputs.version }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-wheels-${{ matrix.os.name }}-${{ matrix.os.arch }}
+          path: dist/*
+          if-no-files-found: error
   release:
-    uses: Silimate/actions/.github/workflows/native-tarball-release.yml@v1
+    runs-on: ubuntu-24.04
+    name: Create release
+    needs: [version, wheel-build]
+    if: github.event_name != 'pull_request'
     permissions:
       contents: write
-    with:
-      product: prunefl
-      # Only publish from main; pull requests build and smoke-test but release nothing
-      publish: ${{ github.event_name != 'pull_request' }}
-      draft: ${{ inputs.draft || false }}
-      with-ninja: true
-      # python3 drives misc/file2utf8z.py, which generates version.cc
-      alpine-packages: python3
-      centos-packages: python3
-      macos-packages: cmake ninja
-      build-script: |
-        cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -S . -B build
-        cmake --build build -j"$NPROC"
-        cp build/prunefl "$STAGE/bin/"
-      smoke-test: |
-        # Extract to a throwaway prefix so the binary can only resolve its
-        # libraries through the RPATHs the bundling step set, exactly as a user
-        # would after unpacking the archive
-        rm -rf /tmp/smoke && mkdir -p /tmp/smoke
-        tar xzf "$TARBALL" -C /tmp/smoke
-        /tmp/smoke/usr/local/bin/prunefl --version
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: python-wheels-*
+          merge-multiple: true
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: '${{ needs.version.outputs.version }}'
+        run: |
+          gh release create "v$TAG" dist/*.whl \
+            --prerelease \
+            --repo '${{ github.repository }}' \
+            --target '${{ github.sha }}' \
+            --generate-notes \
+            --notes 'Automated build based on commit ${{ github.sha }}'
+      - name: Upload Wheels to Silimate Download Server
+        env:
+          SERVER_SSH_KEY: ${{ secrets.SILIMATE_SERVER_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p $PWD/ssh
+          echo "$SERVER_SSH_KEY" > $PWD/ssh/key
+          chmod 600 $PWD/ssh/key
+          SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=15 -i $PWD/ssh/key"
+          rsync --verbose --rsh="ssh $SSH_OPTS" --recursive $PWD/dist/\
+            ubuntu@downloads.silimate.com:/usr/share/nginx/pypi/prunefl/
