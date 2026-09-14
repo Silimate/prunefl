@@ -33,5 +33,8 @@ target_include_directories(prunefl PRIVATE third_party/access_private_20/include
 target_link_libraries(prunefl PUBLIC slang::slang tsl::ordered_map nlohmann_json::nlohmann_json picosha2)
 # target_compile_options(prunefl PRIVATE -fsanitize=address -fno-omit-frame-pointer -g)
 # target_link_options(prunefl PRIVATE -fsanitize=address)
+if(CMAKE_SYSTEM_NAME MATCHES "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT BUILD_SHARED_LIBS)
+    target_link_options(prunefl PRIVATE -static-libstdc++ -static-libgcc)
+endif()
 enable_testing()
 add_subdirectory(test)

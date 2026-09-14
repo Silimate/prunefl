@@ -83,13 +83,17 @@ jobs:
         env:
           CIBW_ARCHS: ${{ matrix.os.arch }}
           CIBW_BUILD_VERBOSITY: "1"
-          # manylinux2014 (CentOS 7) does not have a modern enough C++ compiler
-          # for slang
-          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
-          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
           CIBW_ENVIRONMENT: >
             MACOSX_DEPLOYMENT_TARGET=11.0
             PRUNEFL_WHEEL_VERSION=${{ needs.version.outputs.version }}
+          CIBW_ENVIRONMENT_LINUX: >
+            PATH=/opt/rh/devtoolset-11/root/usr/bin:$PATH
+            LD_LIBRARY_PATH=/opt/rh/devtoolset-11/root/lib64:$LD_LIBRARY_PATH
+            PKG_CONFIG_PATH=/opt/rh/devtoolset-11/root/usr/lib64/pkgconfig:$PKG_CONFIG_PATH
+            PRUNEFL_WHEEL_VERSION=${{ needs.version.outputs.version }}
+          CIBW_BEFORE_ALL_LINUX: bash ./wheel_build/before_all_linux.sh
       - uses: actions/upload-artifact@v7
         with:
           name: python-wheels-${{ matrix.os.name }}-${{ matrix.os.arch }}
