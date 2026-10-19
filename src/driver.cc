@@ -86,6 +86,13 @@ prunefl::Driver::Driver() : driver::Driver::Driver() {
 		"frontend."
 	);
 	cmdLine.add("--output", output, "The file to output file paths to");
+	cmdLine.add(
+		"--keep-going",
+		keep_going,
+		"Write the pruned file list even if the sources have errors, such as "
+		"in files the top module does not need. Whatever reads the list still "
+		"reports errors in the files it names."
+	);
 
 	options.compat = slang::driver::CompatMode::All;
 	options.timeScale = "1ns/1ns";
@@ -254,7 +261,7 @@ void prunefl::Driver::prepare() {
 	}
 	compilation = createCompilation();
 	reportCompilation(*compilation, true);
-	if (!reportDiagnostics(true)) {
+	if (!reportDiagnostics(true) && !keep_going.value_or(false)) {
 		throw std::runtime_error("Could not report diagnostics!");
 	}
 	root = &compilation->getRoot();

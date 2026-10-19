@@ -28,7 +28,10 @@ if ! test -f list.f; then
   input_file=test.v
 fi
 
-$prunefl $input_file --top top_module \
+# extra options for this test
+flags=$(cat flags 2>/dev/null || true)
+
+$prunefl $input_file --top top_module $flags \
   --verific-compat --ignore-unknown-modules\
   --output-flags-to $bindir/$test.flags.f \
   --output $bindir/$test.f \
@@ -39,7 +42,7 @@ verify_unused ./unused.txt $bindir/$test.flags.f
 $slang_hier --single-unit -F $bindir/$test.flags.f --top top_module --compat all --timescale=1ns/1ns
 
 # test loading from cache
-$prunefl $input_file --top top_module \
+$prunefl $input_file --top top_module $flags \
   --verific-compat --ignore-unknown-modules\
   --output-flags-to $bindir/$test.flags.cached.f \
   --output $bindir/$test.cached.f \
