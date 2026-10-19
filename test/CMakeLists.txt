@@ -9,6 +9,7 @@ set(ALL_TESTS
   test_libmap
   test_timescales
   test_no_list
+  test_keep_going
 )
 
 foreach(test_name ${ALL_TESTS})

@@ -86,6 +86,13 @@ prunefl::Driver::Driver() : driver::Driver::Driver() {
 		"frontend."
 	);
 	cmdLine.add("--output", output, "The file to output file paths to");
+	cmdLine.add(
+		"--keep-going",
+		keep_going,
+		"Write the pruned file list even if the sources have errors, such as "
+		"in files the top module does not need. Whatever reads the list still "
+		"reports errors in the files it names."
+	);
 
 	options.compat = slang::driver::CompatMode::All;
 	options.timeScale = "1ns/1ns";
@@ -254,7 +261,8 @@ void prunefl::Driver::prepare() {
 	}
 	compilation = createCompilation();
 	reportCompilation(*compilation, true);
-	if (!reportDiagnostics(true)) {
+	had_errors = !reportDiagnostics(true);
+	if (had_errors && !keep_going.value_or(false)) {
 		throw std::runtime_error("Could not report diagnostics!");
 	}
 	root = &compilation->getRoot();
@@ -303,7 +311,8 @@ void add_file_hashes(nlohmann::json &object, const T &files) {
 }
 
 void prunefl::Driver::try_write_cache() const {
-	if (!cache_file.has_value()) {
+	// A run without --keep-going must not load a result that had errors
+	if (!cache_file.has_value() || had_errors) {
 		return;
 	}
 	fs::path cache_path{*cache_file};
