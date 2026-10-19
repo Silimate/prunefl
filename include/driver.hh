@@ -124,6 +124,7 @@ struct PathHash {
 		tsl::ordered_set<std::filesystem::path, PathHash> result_includes;
 		tsl::ordered_set<std::filesystem::path, PathHash> result_library_files;
 		const slang::ast::RootSymbol *root = nullptr;
+		bool had_errors = false; // reported, but --keep-going went on
 
 		// cli
 		std::optional<bool> show_help;

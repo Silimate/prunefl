@@ -48,6 +48,14 @@ $prunefl $input_file --top top_module $flags \
   --output $bindir/$test.cached.f \
   --cache-to $bindir/$test.cache.json
 
+# a result that had errors is not cached for a run without --keep-going
+case "$flags" in *--keep-going*)
+  if $prunefl $input_file --top top_module --verific-compat --ignore-unknown-modules \
+    --output $bindir/$test.nocache.f --cache-to $bindir/$test.cache.json; then
+    exit 1
+  fi
+esac
+
 # only difference should be that it points to .cached.f instead of .f
 cat $bindir/$test.flags.cached.f | sed 's/.cached.f/.f/' | cmp $bindir/$test.flags.f - 
 cmp $bindir/$test.f $bindir/$test.cached.f

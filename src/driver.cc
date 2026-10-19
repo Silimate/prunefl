@@ -261,7 +261,8 @@ void prunefl::Driver::prepare() {
 	}
 	compilation = createCompilation();
 	reportCompilation(*compilation, true);
-	if (!reportDiagnostics(true) && !keep_going.value_or(false)) {
+	had_errors = !reportDiagnostics(true);
+	if (had_errors && !keep_going.value_or(false)) {
 		throw std::runtime_error("Could not report diagnostics!");
 	}
 	root = &compilation->getRoot();
@@ -310,7 +311,8 @@ void add_file_hashes(nlohmann::json &object, const T &files) {
 }
 
 void prunefl::Driver::try_write_cache() const {
-	if (!cache_file.has_value()) {
+	// A run without --keep-going must not load a result that had errors
+	if (!cache_file.has_value() || had_errors) {
 		return;
 	}
 	fs::path cache_path{*cache_file};
