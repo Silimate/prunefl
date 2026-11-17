@@ -32,7 +32,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          BASE_VER=$(git show HEAD -q --format="%cs" | tr -d '\n' | tr '-' '.')
+          BASE_VER=$(TZ=UTC git show HEAD -q --format="%cd" --date=format-local:%Y.%m.%d)
           COUNTER=0
           CURRENT_VER=$BASE_VER
           while gh release view "v$CURRENT_VER" > /dev/null 2>&1; do
